@@ -63,13 +63,25 @@ export default function App() {
         </div>
 
         <Card className="mt-6 p-4 rounded-2xl shadow-md">
-          <h3 className="mb-2 font-semibold">Points History</h3>
-          <ul className="text-sm space-y-1">
-            <li>+20 Lash Full Set</li>
-            <li>+10 Fill</li>
-            <li>-50 Reward Redeemed</li>
-          </ul>
-        </Card>
+  <h3 className="mb-2 font-semibold">Points History</h3>
+  <ul className="text-sm space-y-1">
+    <li>+20 Lash Full Set</li>
+    <li>+10 Fill</li>
+    <li>-50 Reward Redeemed</li>
+  </ul>
+</Card>
+
+<Card className="mt-6 p-4 rounded-2xl shadow-md">
+  <h3 className="mb-3 font-semibold">How You Earn Points</h3>
+
+  <ul className="text-sm space-y-2">
+    <li>💎 Lash Full Set — +20 points</li>
+    <li>💎 Lash Fill — +10 points</li>
+    <li>💎 Lash Lift/Tint — +15 points</li>
+    <li>💎 Referral — +25 points</li>
+    <li>💎 Leave a Review — +10 points</li>
+  </ul>
+</Card>
       </motion.div>
     </div>
   );
