@@ -7,53 +7,34 @@ const servicePoints: Record<string, number> = {
   "referral": 25,
 };
 
-export const processAppointment = async (appointmentId: string) => {
-  console.log("🔥 Function started with ID:", appointmentId);
+export const processAppointmentByEmail = async (
+  email: string,
+  service: string
+) => {
+  console.log("📩 Processing:", email, service);
 
-  const { data: appt, error } = await supabase
-    .from("appointments")
-    .select("*")
-    .eq("id", appointmentId)
-    .single();
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedService = service.toLowerCase();
 
-  console.log("📦 Appointment fetched:", appt);
-  console.log("❌ Error (if any):", error);
-
-  if (!appt) {
-    alert("Appointment not found");
-    return;
-  }
-
-  if (appt.status !== "completed") {
-    alert("Appointment not completed");
-    return;
-  }
-
-  const points = servicePoints[appt.service.toLowerCase()] || 0;
-
-  console.log("💎 Points to add:", points);
+  const points = servicePoints[normalizedService] || 0;
 
   const { data: client } = await supabase
     .from("clients")
     .select("*")
-    .eq("email", appt.email)
+    .eq("email", normalizedEmail)
     .single();
 
-  console.log("👤 Client found:", client);
-
   if (!client) {
-    alert("Client not found");
+    console.log("❌ Client not found");
     return;
   }
 
-  const { error: updateError } = await supabase
+  await supabase
     .from("clients")
     .update({
       points: client.points + points,
     })
-    .eq("email", appt.email);
+    .eq("email", normalizedEmail);
 
-  console.log("⚡ Update result error:", updateError);
-
-  alert(`Added ${points} points successfully! 🎉`);
+  console.log(`🎉 Added ${points} points to ${normalizedEmail}`);
 };

@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { processAppointment } from "@/lib/appointmentProcessor";
+import { processAppointmentByEmail } from "@/lib/appointmentProcessor";
 
 const ADMIN_PASSWORD = "vip2026"; // we will upgrade later 🔐
 
@@ -122,11 +122,34 @@ export default function AdminPage() {
     Redeem Free Add-On (150 pts)
   </Button>
 
-  <Button
-  className="mt-4 bg-black text-white"
-  onClick={() => processAppointment("6b44965e-823f-46e4-a74b-42ab9e689fcc")}
+<Button
+  onClick={async () => {
+    console.log("🚀 Button clicked");
+
+    const res = await fetch("/api/square-webhook", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        data: {
+          object: {
+            customer: {
+              email_address: "test@gmail.com",
+            },
+            appointment: {
+              service_variation_name: "full set",
+            },
+          },
+        },
+      }),
+    });
+
+    const data = await res.json();
+    console.log("✅ Response:", data);
+  }}
 >
-  Test Auto Points
+  Test Webhook
 </Button>
 </div>
       </Card>
