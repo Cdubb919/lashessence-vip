@@ -1,26 +1,28 @@
 import { NextResponse } from "next/server";
 import { processAppointmentByEmail } from "@/lib/appointmentProcessor";
-import { squareClient } from "@/lib/squareClient";
 
 /**
- * Fetch customer email from Square
+ * Fetch customer email from Square (REST API - Vercel safe)
  */
-async function getCustomerEmail(customerId: string | undefined | null) {
+async function getCustomerEmail(customerId: string | null) {
   if (!customerId) return null;
 
   try {
-    console.log("🔥 Fetching Square customer:", customerId);
+    const res = await fetch(
+      `https://connect.squareup.com/v2/customers/${customerId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
 
-    const response =
-      await squareClient.customersApi.retrieveCustomer(customerId);
+    const data = await res.json();
 
-    const customer = response?.result?.customer;
-
-    console.log("📦 Square customer:", customer);
-
-    return customer?.emailAddress ?? null;
+    return data?.customer?.email_address || null;
   } catch (err) {
-    console.error("❌ Square customer fetch error:", err);
+    console.error("Square fetch error:", err);
     return null;
   }
 }
@@ -33,15 +35,14 @@ export async function POST(req: Request) {
 
     const booking = body?.data?.object?.booking;
 
-    const customerId: string | undefined =
-      booking?.customer_id ?? null;
+    const customerId = booking?.customer_id || null;
 
     console.log("🧠 CUSTOMER ID:", customerId);
 
     const email = await getCustomerEmail(customerId);
 
     const service =
-      booking?.appointment_segments?.[0]?.service_variation_id ??
+      booking?.appointment_segments?.[0]?.service_variation_id ||
       "full set";
 
     console.log("👤 Extracted email:", email);
