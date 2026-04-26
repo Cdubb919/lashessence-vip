@@ -29,6 +29,8 @@ async function getCustomerEmail(customerId: string | null) {
 
 export async function POST(req: Request) {
   try {
+    console.log("ENV TOKEN PRESENT:", !!process.env.SQUARE_ACCESS_TOKEN);
+console.log("TOKEN STARTS WITH:", process.env.SQUARE_ACCESS_TOKEN?.slice(0, 6));
     const body = await req.json();
 
     console.log("📩 FULL WEBHOOK BODY:", JSON.stringify(body, null, 2));
