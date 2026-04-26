@@ -9,7 +9,7 @@ async function getCustomerEmail(customerId: string | null) {
 
   try {
     const res = await fetch(
-      `https://connect.squareup.com/v2/customers/${customerId}`,
+      `https://connect.squareupsandbox.com/v2/customers/${customerId}`,
       {
         headers: {
           Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
