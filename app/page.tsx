@@ -6,8 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { motion } from "framer-motion";
 
+type User = {
+  name: string;
+  points: number;
+};
+
 export default function App() {
-  const [user, setUser] = useState(null);
+ const [user, setUser] = useState<User | null>(null);
   const [email, setEmail] = useState("");
 
   const handleLogin = () => {
