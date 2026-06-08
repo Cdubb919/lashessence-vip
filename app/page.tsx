@@ -20,7 +20,7 @@ export default function App() {
   const [isNewUser, setIsNewUser] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // 🔁 CENTRAL: fetch client profile
+  // LOAD PROFILE
   const loadUserProfile = async (userId: string) => {
     const { data, error } = await supabase
       .from("clients")
@@ -28,12 +28,10 @@ export default function App() {
       .eq("id", userId)
       .single();
 
-    if (error) {
-      console.error("Profile load error:", error);
+    if (error || !data) {
+      console.error("Profile error:", error);
       return;
     }
-
-    if (!data) return;
 
     setUser({
       email: data.email,
@@ -42,23 +40,15 @@ export default function App() {
     });
   };
 
-  // 🔐 INIT SESSION (REFRESH FIX)
+  // INIT SESSION (fix refresh logout issue)
   useEffect(() => {
     const init = async () => {
       setLoading(true);
 
-      const { data, error } = await supabase.auth.getSession();
+      const { data } = await supabase.auth.getSession();
 
-      if (error) {
-        console.error("Session error:", error);
-        setLoading(false);
-        return;
-      }
-
-      const session = data.session;
-
-      if (session?.user) {
-        await loadUserProfile(session.user.id);
+      if (data.session?.user) {
+        await loadUserProfile(data.session.user.id);
       }
 
       setLoading(false);
@@ -66,7 +56,6 @@ export default function App() {
 
     init();
 
-    // 👂 LIVE AUTH LISTENER (important for login/logout sync)
     const { data: listener } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         if (!session?.user) {
@@ -78,49 +67,31 @@ export default function App() {
       }
     );
 
-    return () => {
-      listener.subscription.unsubscribe();
-    };
+    return () => listener.subscription.unsubscribe();
   }, []);
 
-  // 🔐 LOGIN
+  // LOGIN
   const handleLogin = async () => {
-    const cleanEmail = email.trim().toLowerCase();
-
     const { data, error } = await supabase.auth.signInWithPassword({
-      email: cleanEmail,
+      email: email.trim().toLowerCase(),
       password,
     });
 
-    if (error) {
-      console.error("Login error:", error);
-      alert(error.message);
-      return;
-    }
-
-    if (!data.session?.user) {
-      alert("Login failed - no session returned");
-      return;
-    }
+    if (error) return alert(error.message);
+    if (!data.session?.user) return;
 
     await loadUserProfile(data.session.user.id);
     setIsNewUser(false);
   };
 
-  // 🚪 LOGOUT (CLEAN)
+  // LOGOUT
   const handleLogout = async () => {
-    const { error } = await supabase.auth.signOut();
-
-    if (error) {
-      console.error("Logout error:", error);
-      return;
-    }
-
+    await supabase.auth.signOut();
     setUser(null);
     setIsNewUser(false);
   };
 
-  // 🆕 SIGNUP
+  // SIGNUP + WELCOME EMAIL
   const handleSignup = async () => {
     const cleanEmail = email.trim().toLowerCase();
 
@@ -129,14 +100,10 @@ export default function App() {
       password,
     });
 
-    if (error) {
-      console.error("Signup error:", error);
-      alert(error.message);
-      return;
-    }
-
+    if (error) return alert(error.message);
     if (!data.user) return;
 
+    // create client record
     const { error: insertError } = await supabase.from("clients").insert([
       {
         id: data.user.id,
@@ -147,8 +114,19 @@ export default function App() {
     ]);
 
     if (insertError) {
-      console.error("Client insert error:", insertError);
+      console.error(insertError);
       return;
+    }
+
+    // SEND WELCOME EMAIL
+    try {
+      await fetch("/api/send-welcome-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: data.user.email }),
+      });
+    } catch (err) {
+      console.error("Email error:", err);
     }
 
     setUser({
@@ -160,34 +138,39 @@ export default function App() {
     setIsNewUser(true);
   };
 
-  // ⏳ LOADING STATE (fixes “overlay stuck” feeling)
+  // LOADING
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-pink-500">Loading...</p>
+      <div className="min-h-screen flex items-center justify-center bg-pink-50">
+        <p className="text-pink-500 animate-pulse">
+          Loading Lash Essence VIP...
+        </p>
       </div>
     );
   }
 
-  // 🔐 LOGIN SCREEN
+  // LOGIN SCREEN
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pink-50 via-white to-pink-100 p-6">
-        <Card className="p-8 rounded-2xl shadow-xl w-[350px] text-center bg-white/80 backdrop-blur-md border border-pink-100">
-          <img
-            src="/logo.jpg"
-            alt="Lash Essence Logo"
-            className="w-28 mx-auto mb-4"
-          />
 
-          <h1 className="text-2xl font-semibold mb-4 text-pink-600">
-            VIP Rewards
+        <Card className="p-8 rounded-3xl shadow-2xl w-[360px] text-center bg-white/70 backdrop-blur-xl border border-pink-100">
+
+          <img src="/logo.jpg" className="w-24 mx-auto mb-4 rounded-full shadow-md" />
+
+          <h1 className="text-2xl font-semibold text-pink-600">
+            Lash Essence VIP
           </h1>
+
+          <p className="text-xs text-gray-500 mb-6">
+            Luxury Rewards Experience
+          </p>
 
           <Input
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            className="mb-2"
           />
 
           <Input
@@ -202,85 +185,102 @@ export default function App() {
             className="w-full mb-2 bg-pink-500 hover:bg-pink-600 text-white"
             onClick={handleLogin}
           >
-            Login
+            Sign In
           </Button>
 
           <Button
-            className="w-full bg-pink-500 hover:bg-pink-600 text-white"
+            className="w-full bg-white border border-pink-200 text-pink-600 hover:bg-pink-50"
             onClick={handleSignup}
           >
-            Sign Up
+            Create Account
           </Button>
         </Card>
+
       </div>
     );
   }
 
-  // 📊 DASHBOARD
+  // DASHBOARD
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-pink-100 p-6">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-        
-        <Card className="p-6 rounded-2xl shadow-xl mb-6 bg-white/80 backdrop-blur-md border border-pink-100">
-          
-          {/* LOGOUT */}
-          <div className="flex justify-end mb-4">
+
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+
+        {/* HEADER */}
+        <Card className="p-6 rounded-3xl shadow-xl mb-6 bg-white/70 backdrop-blur-xl border border-pink-100">
+
+          <div className="flex justify-between items-center mb-4">
+
+            <div className="flex items-center gap-3">
+              <img src="/logo.jpg" className="w-12 h-12 rounded-full shadow-md" />
+
+              <div>
+                <h2 className="text-lg font-semibold text-pink-700">
+                  VIP Dashboard
+                </h2>
+                <p className="text-xs text-gray-500">{user.email}</p>
+              </div>
+            </div>
+
             <Button
-              variant="outline"
               onClick={handleLogout}
+              variant="outline"
               className="text-pink-600 border-pink-200"
             >
               Logout
             </Button>
+
           </div>
 
-          <h2 className="text-xl mb-2 text-pink-700">
-            {isNewUser ? "Welcome to VIP ✨" : "Welcome back ✨"}
-          </h2>
+          {/* POINTS */}
+          <div className="text-center py-4">
+            <p className="text-sm text-gray-500">Your Balance</p>
 
-          <p className="text-4xl font-bold text-pink-600">
-            {user.points} Points
-          </p>
+            <motion.h1 className="text-5xl font-bold text-pink-600">
+              {user.points}
+            </motion.h1>
 
-          <p className="text-sm mt-2 text-gray-600">
-            {user.points < 50
-              ? `${50 - user.points} points until reward 🎉`
-              : "Reward unlocked 🎉"}
-          </p>
+            <p className="text-xs text-gray-500 mt-1">
+              {user.points < 50
+                ? `${50 - user.points} points until reward`
+                : "Reward unlocked ✨"}
+            </p>
+          </div>
+
         </Card>
 
         {/* ADMIN */}
         {user.isAdmin && (
-          <Card className="p-4 mb-6 border border-pink-300 bg-pink-50">
-            <h3 className="font-bold text-pink-700">Admin Panel</h3>
-            <p className="text-sm text-gray-600">
-              Admin access enabled
-            </p>
+          <Card className="p-4 mb-6 bg-pink-50 border border-pink-200">
+            <p className="font-semibold text-pink-700">Admin Access Enabled</p>
           </Card>
         )}
 
         {/* REWARDS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {[50, 100, 150].map((reward) => (
-            <Card
-              key={reward}
-              className="p-4 rounded-2xl shadow-md bg-white/80 backdrop-blur-md border border-pink-100"
-            >
+
+          {[50, 100, 150].map((r) => (
+            <Card key={r} className="p-5 rounded-3xl shadow-md bg-white/70 border border-pink-100">
+
               <CardContent>
-                <p className="text-lg font-medium text-pink-700">
-                  {reward} Points
+                <p className="text-lg font-semibold text-pink-700">
+                  {r} Points
                 </p>
+
                 <p className="text-sm text-gray-600">
-                  {reward === 50
+                  {r === 50
                     ? "$10 Off"
-                    : reward === 100
+                    : r === 100
                     ? "$25 Off"
-                    : "Free Add-On"}
+                    : "Free Luxury Add-On"}
                 </p>
               </CardContent>
+
             </Card>
           ))}
+
         </div>
+
       </motion.div>
     </div>
   );
