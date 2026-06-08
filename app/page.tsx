@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,53 +18,55 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isNewUser, setIsNewUser] = useState(false);
-  const [clients, setClients] = useState<any[]>([]);
-  const [search, setSearch] = useState("");
-  const [loadingClients, setLoadingClients] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const loadClients = async () => {
-    setLoadingClients(true);
-
+  // 🔁 CENTRAL: fetch client profile
+  const loadUserProfile = async (userId: string) => {
     const { data, error } = await supabase
       .from("clients")
       .select("*")
-      .order("points", { ascending: false });
+      .eq("id", userId)
+      .single();
 
     if (error) {
-      console.error(error);
-    } else {
-      setClients(data || []);
+      console.error("Profile load error:", error);
+      return;
     }
 
-    setLoadingClients(false);
+    if (!data) return;
+
+    setUser({
+      email: data.email,
+      points: data.points,
+      isAdmin: data.is_admin,
+    });
   };
 
+  // 🔐 INIT SESSION (REFRESH FIX)
   useEffect(() => {
-    const loadUserFromSession = async () => {
-      const { data } = await supabase.auth.getSession();
+    const init = async () => {
+      setLoading(true);
+
+      const { data, error } = await supabase.auth.getSession();
+
+      if (error) {
+        console.error("Session error:", error);
+        setLoading(false);
+        return;
+      }
 
       const session = data.session;
-      if (!session?.user) return;
 
-      const userId = session.user.id;
-
-      const { data: client } = await supabase
-        .from("clients")
-        .select("*")
-        .eq("id", userId)
-        .single();
-
-      if (client) {
-        setUser({
-          email: client.email,
-          points: client.points,
-          isAdmin: client.is_admin,
-        });
+      if (session?.user) {
+        await loadUserProfile(session.user.id);
       }
+
+      setLoading(false);
     };
 
-    loadUserFromSession();
+    init();
 
+    // 👂 LIVE AUTH LISTENER (important for login/logout sync)
     const { data: listener } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         if (!session?.user) {
@@ -72,22 +74,8 @@ export default function App() {
           return;
         }
 
-        const userId = session.user.id;
-
-        const { data: client } = await supabase
-          .from("clients")
-          .select("*")
-          .eq("id", userId)
-          .single();
-
-        if (client) {
-          setUser({
-            email: client.email,
-            points: client.points,
-            isAdmin: client.is_admin,
-          });
-        }
-      },
+        await loadUserProfile(session.user.id);
+      }
     );
 
     return () => {
@@ -95,7 +83,7 @@ export default function App() {
     };
   }, []);
 
-  // LOGIN
+  // 🔐 LOGIN
   const handleLogin = async () => {
     const cleanEmail = email.trim().toLowerCase();
 
@@ -105,53 +93,34 @@ export default function App() {
     });
 
     if (error) {
-      console.error(error);
+      console.error("Login error:", error);
       alert(error.message);
       return;
     }
 
-    // 🚨 IMPORTANT FIX: use session instead of data.user
-    const session = data.session;
-
-    if (!session?.user) {
+    if (!data.session?.user) {
       alert("Login failed - no session returned");
       return;
     }
 
-    const userId = session.user.id;
+    await loadUserProfile(data.session.user.id);
+    setIsNewUser(false);
+  };
 
-    const { data: client, error: clientError } = await supabase
-      .from("clients")
-      .select("*")
-      .eq("id", userId)
-      .single();
+  // 🚪 LOGOUT (CLEAN)
+  const handleLogout = async () => {
+    const { error } = await supabase.auth.signOut();
 
-    if (clientError || !client) {
-      console.error(clientError);
-      alert("Client profile not found in database");
+    if (error) {
+      console.error("Logout error:", error);
       return;
     }
 
-    setIsNewUser(false);
-
-    setUser({
-      email: client.email,
-      points: client.points,
-      isAdmin: client.is_admin,
-    });
-  };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-
     setUser(null);
     setIsNewUser(false);
-
-    // optional but helps force UI reset cleanly
-    window.location.reload();
   };
 
-  // SIGNUP (+10 POINTS)
+  // 🆕 SIGNUP
   const handleSignup = async () => {
     const cleanEmail = email.trim().toLowerCase();
 
@@ -161,37 +130,46 @@ export default function App() {
     });
 
     if (error) {
-      console.error(error);
+      console.error("Signup error:", error);
       alert(error.message);
       return;
     }
 
-    if (data.user) {
-      const { error: insertError } = await supabase.from("clients").insert([
-        {
-          id: data.user.id,
-          email: data.user.email,
-          points: 10,
-          is_admin: false, // 👈 IMPORTANT DEFAULT
-        },
-      ]);
+    if (!data.user) return;
 
-      if (insertError) {
-        console.error("Client insert error:", insertError);
-        return;
-      }
-
-      setIsNewUser(true);
-
-      setUser({
-        email: data.user.email!,
+    const { error: insertError } = await supabase.from("clients").insert([
+      {
+        id: data.user.id,
+        email: data.user.email,
         points: 10,
-        isAdmin: false,
-      });
+        is_admin: false,
+      },
+    ]);
+
+    if (insertError) {
+      console.error("Client insert error:", insertError);
+      return;
     }
+
+    setUser({
+      email: data.user.email!,
+      points: 10,
+      isAdmin: false,
+    });
+
+    setIsNewUser(true);
   };
 
-  // LOGIN SCREEN
+  // ⏳ LOADING STATE (fixes “overlay stuck” feeling)
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-pink-500">Loading...</p>
+      </div>
+    );
+  }
+
+  // 🔐 LOGIN SCREEN
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pink-50 via-white to-pink-100 p-6">
@@ -209,7 +187,7 @@ export default function App() {
           <Input
             placeholder="Email"
             value={email}
-            onChange={(e) => setEmail(e.target.value.trim())}
+            onChange={(e) => setEmail(e.target.value)}
           />
 
           <Input
@@ -221,14 +199,14 @@ export default function App() {
           />
 
           <Button
-            className="w-full mb-2 cursor-pointer bg-pink-500 hover:bg-pink-600 text-white"
+            className="w-full mb-2 bg-pink-500 hover:bg-pink-600 text-white"
             onClick={handleLogin}
           >
             Login
           </Button>
 
           <Button
-            className="w-full cursor-pointer bg-pink-500 hover:bg-pink-600 text-white"
+            className="w-full bg-pink-500 hover:bg-pink-600 text-white"
             onClick={handleSignup}
           >
             Sign Up
@@ -238,14 +216,14 @@ export default function App() {
     );
   }
 
-  // DASHBOARD
+  // 📊 DASHBOARD
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-pink-100 p-6">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+        
         <Card className="p-6 rounded-2xl shadow-xl mb-6 bg-white/80 backdrop-blur-md border border-pink-100">
+          
+          {/* LOGOUT */}
           <div className="flex justify-end mb-4">
             <Button
               variant="outline"
@@ -255,10 +233,9 @@ export default function App() {
               Logout
             </Button>
           </div>
+
           <h2 className="text-xl mb-2 text-pink-700">
-            {isNewUser
-              ? "Thanks for joining Lash Essence VIP ✨"
-              : "Welcome back ✨"}
+            {isNewUser ? "Welcome to VIP ✨" : "Welcome back ✨"}
           </h2>
 
           <p className="text-4xl font-bold text-pink-600">
@@ -267,19 +244,22 @@ export default function App() {
 
           <p className="text-sm mt-2 text-gray-600">
             {user.points < 50
-              ? `${50 - user.points} points until your first reward 🎉`
-              : "You've unlocked your first reward! 🎉"}
+              ? `${50 - user.points} points until reward 🎉`
+              : "Reward unlocked 🎉"}
           </p>
         </Card>
 
-        {/* 👑 ADMIN PANEL */}
+        {/* ADMIN */}
         {user.isAdmin && (
           <Card className="p-4 mb-6 border border-pink-300 bg-pink-50">
             <h3 className="font-bold text-pink-700">Admin Panel</h3>
-            <p className="text-sm text-gray-600">You have admin access</p>
+            <p className="text-sm text-gray-600">
+              Admin access enabled
+            </p>
           </Card>
         )}
 
+        {/* REWARDS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {[50, 100, 150].map((reward) => (
             <Card
@@ -290,13 +270,12 @@ export default function App() {
                 <p className="text-lg font-medium text-pink-700">
                   {reward} Points
                 </p>
-
                 <p className="text-sm text-gray-600">
                   {reward === 50
                     ? "$10 Off"
                     : reward === 100
-                      ? "$25 Off"
-                      : "Free Add-On"}
+                    ? "$25 Off"
+                    : "Free Add-On"}
                 </p>
               </CardContent>
             </Card>
