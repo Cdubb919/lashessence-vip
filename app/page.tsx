@@ -64,7 +64,7 @@ export default function App() {
         }
 
         await loadUserProfile(session.user.id);
-      }
+      },
     );
 
     return () => listener.subscription.unsubscribe();
@@ -175,7 +175,6 @@ export default function App() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pink-50 via-white to-pink-100 p-6">
         <Card className="p-8 rounded-3xl shadow-2xl w-[360px] text-center bg-white/70 backdrop-blur-xl border border-pink-100">
-
           <img src="/logo.jpg" className="w-24 mx-auto mb-4 rounded-full" />
 
           <h1 className="text-2xl font-semibold text-pink-600">
@@ -222,12 +221,13 @@ export default function App() {
   // DASHBOARD
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-pink-100 p-6">
-
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="space-y-6"
+      >
         {/* HEADER */}
         <Card className="p-6 rounded-3xl shadow-xl bg-white/70 backdrop-blur-xl border border-pink-100">
-
           <div className="flex justify-between items-center mb-4">
             <div className="flex items-center gap-3">
               <img src="/logo.jpg" className="w-12 h-12 rounded-full" />
@@ -240,13 +240,24 @@ export default function App() {
               </div>
             </div>
 
-            <Button
-              onClick={handleLogout}
-              variant="outline"
-              className="text-pink-600 border-pink-200"
-            >
-              Logout
-            </Button>
+            <div className="flex items-center gap-3">
+              {user.isAdmin && (
+                <a
+                  href="/admin"
+                  className="text-pink-600 text-sm font-medium hover:underline"
+                >
+                  Open Admin CRM →
+                </a>
+              )}
+
+              <Button
+                onClick={handleLogout}
+                variant="outline"
+                className="text-pink-600 border-pink-200"
+              >
+                Logout
+              </Button>
+            </div>
           </div>
 
           {/* POINTS */}
@@ -268,9 +279,7 @@ export default function App() {
         {/* ADMIN */}
         {user.isAdmin && (
           <Card className="p-4 bg-pink-50 border border-pink-200">
-            <p className="font-semibold text-pink-700">
-              Admin Access Enabled
-            </p>
+            <p className="font-semibold text-pink-700">Admin Access Enabled</p>
           </Card>
         )}
 
@@ -287,8 +296,10 @@ export default function App() {
                 { points: 100, label: "$25 Off" },
                 { points: 150, label: "Free Add-On" },
               ].map((r) => (
-                <div key={r.points} className="p-4 border rounded-xl bg-white space-y-2">
-
+                <div
+                  key={r.points}
+                  className="p-4 border rounded-xl bg-white space-y-2"
+                >
                   <p className="font-semibold text-pink-700">
                     {r.points} Points
                   </p>
@@ -301,7 +312,6 @@ export default function App() {
                   >
                     Redeem
                   </Button>
-
                 </div>
               ))}
             </div>
@@ -321,7 +331,6 @@ export default function App() {
             <p>👯 +5 — Referral</p>
           </div>
         </Card>
-
       </motion.div>
     </div>
   );
