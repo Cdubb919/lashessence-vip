@@ -15,7 +15,7 @@ export async function POST(req: Request) {
     }
 
     await resend.emails.send({
-      from: "Lash Essence VIP <onboarding@resend.dev>",
+      from: "Lash Essence VIP <send@lashessencevip.com>",
       to: email,
       subject: `✨ You earned ${points} VIP points`,
       html: `

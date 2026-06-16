@@ -8,7 +8,7 @@ export async function POST(req: Request) {
     const { email } = await req.json();
 
     await resend.emails.send({
-      from: "Lash Essence VIP <onboarding@resend.dev>",
+      from: "Lash Essence VIP <send@lashessencevip.com>",
       to: email,
       subject: "Welcome to Lash Essence VIP ✨",
       html: `
