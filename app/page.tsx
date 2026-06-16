@@ -24,23 +24,23 @@ export default function App() {
   const loadUserProfile = async (userId: string) => {
     const { data, error } = await supabase
       .from("clients")
-      .select("*")
+      .select("email, points, is_admin")
       .eq("id", userId)
       .single();
 
     if (error || !data) {
-      console.error("Profile error:", error);
+      console.error("Profile load error:", error);
       return;
     }
 
     setUser({
       email: data.email,
-      points: data.points,
-      isAdmin: data.is_admin,
+      points: data.points ?? 0,
+      isAdmin: data.is_admin === true,
     });
   };
 
-  // INIT SESSION (fix refresh logout issue)
+  // INIT SESSION
   useEffect(() => {
     const init = async () => {
       setLoading(true);
@@ -91,20 +91,17 @@ export default function App() {
     setIsNewUser(false);
   };
 
-  // SIGNUP + WELCOME EMAIL
+  // SIGNUP
   const handleSignup = async () => {
-    const cleanEmail = email.trim().toLowerCase();
-
     const { data, error } = await supabase.auth.signUp({
-      email: cleanEmail,
+      email: email.trim().toLowerCase(),
       password,
     });
 
     if (error) return alert(error.message);
     if (!data.user) return;
 
-    // create client record
-    const { error: insertError } = await supabase.from("clients").insert([
+    await supabase.from("clients").insert([
       {
         id: data.user.id,
         email: data.user.email,
@@ -113,12 +110,6 @@ export default function App() {
       },
     ]);
 
-    if (insertError) {
-      console.error(insertError);
-      return;
-    }
-
-    // SEND WELCOME EMAIL
     try {
       await fetch("/api/send-welcome-email", {
         method: "POST",
@@ -126,7 +117,7 @@ export default function App() {
         body: JSON.stringify({ email: data.user.email }),
       });
     } catch (err) {
-      console.error("Email error:", err);
+      console.error(err);
     }
 
     setUser({
@@ -136,6 +127,36 @@ export default function App() {
     });
 
     setIsNewUser(true);
+  };
+
+  // 💎 REDEEM FUNCTION (NEW)
+  const redeemReward = async (cost: number, label: string) => {
+    if (!user) return;
+
+    if (user.points < cost) {
+      alert("Not enough points for this reward.");
+      return;
+    }
+
+    const newPoints = user.points - cost;
+
+    const { error } = await supabase
+      .from("clients")
+      .update({ points: newPoints })
+      .eq("email", user.email);
+
+    if (error) {
+      console.error("Redeem error:", error);
+      alert("Something went wrong redeeming reward.");
+      return;
+    }
+
+    setUser({
+      ...user,
+      points: newPoints,
+    });
+
+    alert(`${label} redeemed ✨`);
   };
 
   // LOADING
@@ -153,10 +174,9 @@ export default function App() {
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pink-50 via-white to-pink-100 p-6">
-
         <Card className="p-8 rounded-3xl shadow-2xl w-[360px] text-center bg-white/70 backdrop-blur-xl border border-pink-100">
 
-          <img src="/logo.jpg" className="w-24 mx-auto mb-4 rounded-full shadow-md" />
+          <img src="/logo.jpg" className="w-24 mx-auto mb-4 rounded-full" />
 
           <h1 className="text-2xl font-semibold text-pink-600">
             Lash Essence VIP
@@ -195,7 +215,6 @@ export default function App() {
             Create Account
           </Button>
         </Card>
-
       </div>
     );
   }
@@ -204,15 +223,14 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-pink-100 p-6">
 
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
 
         {/* HEADER */}
-        <Card className="p-6 rounded-3xl shadow-xl mb-6 bg-white/70 backdrop-blur-xl border border-pink-100">
+        <Card className="p-6 rounded-3xl shadow-xl bg-white/70 backdrop-blur-xl border border-pink-100">
 
           <div className="flex justify-between items-center mb-4">
-
             <div className="flex items-center gap-3">
-              <img src="/logo.jpg" className="w-12 h-12 rounded-full shadow-md" />
+              <img src="/logo.jpg" className="w-12 h-12 rounded-full" />
 
               <div>
                 <h2 className="text-lg font-semibold text-pink-700">
@@ -229,57 +247,80 @@ export default function App() {
             >
               Logout
             </Button>
-
           </div>
 
           {/* POINTS */}
-          <div className="text-center py-4">
+          <div className="text-center py-6">
             <p className="text-sm text-gray-500">Your Balance</p>
 
             <motion.h1 className="text-5xl font-bold text-pink-600">
               {user.points}
             </motion.h1>
 
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 mt-2">
               {user.points < 50
                 ? `${50 - user.points} points until reward`
                 : "Reward unlocked ✨"}
             </p>
           </div>
-
         </Card>
 
         {/* ADMIN */}
         {user.isAdmin && (
-          <Card className="p-4 mb-6 bg-pink-50 border border-pink-200">
-            <p className="font-semibold text-pink-700">Admin Access Enabled</p>
+          <Card className="p-4 bg-pink-50 border border-pink-200">
+            <p className="font-semibold text-pink-700">
+              Admin Access Enabled
+            </p>
           </Card>
         )}
 
-        {/* REWARDS */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* REWARDS (WITH REDEEM BUTTONS) */}
+        <Card className="p-5 rounded-3xl shadow-md bg-white/70 border border-pink-100">
+          <CardContent>
+            <h3 className="text-lg font-semibold text-pink-700 mb-4">
+              Rewards
+            </h3>
 
-          {[50, 100, 150].map((r) => (
-            <Card key={r} className="p-5 rounded-3xl shadow-md bg-white/70 border border-pink-100">
+            <div className="grid md:grid-cols-3 gap-4">
+              {[
+                { points: 50, label: "$10 Off" },
+                { points: 100, label: "$25 Off" },
+                { points: 150, label: "Free Add-On" },
+              ].map((r) => (
+                <div key={r.points} className="p-4 border rounded-xl bg-white space-y-2">
 
-              <CardContent>
-                <p className="text-lg font-semibold text-pink-700">
-                  {r} Points
-                </p>
+                  <p className="font-semibold text-pink-700">
+                    {r.points} Points
+                  </p>
 
-                <p className="text-sm text-gray-600">
-                  {r === 50
-                    ? "$10 Off"
-                    : r === 100
-                    ? "$25 Off"
-                    : "Free Luxury Add-On"}
-                </p>
-              </CardContent>
+                  <p className="text-sm text-gray-600">{r.label}</p>
 
-            </Card>
-          ))}
+                  <Button
+                    className="w-full bg-pink-500 hover:bg-pink-600 text-white"
+                    onClick={() => redeemReward(r.points, r.label)}
+                  >
+                    Redeem
+                  </Button>
 
-        </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* HOW TO EARN */}
+        <Card className="p-5 rounded-3xl shadow-md bg-white/70 border border-pink-100">
+          <h3 className="text-lg font-semibold text-pink-700 mb-3">
+            How You Earn Points ✨
+          </h3>
+
+          <div className="space-y-2 text-sm text-gray-600">
+            <p>💖 +10 — Lash appointment visit</p>
+            <p>🎉 +10 — Sign up bonus</p>
+            <p>💬 +5 — 5-star review</p>
+            <p>👯 +5 — Referral</p>
+          </div>
+        </Card>
 
       </motion.div>
     </div>
