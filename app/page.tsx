@@ -151,6 +151,14 @@ export default function App() {
       return;
     }
 
+    await supabase.from("reward_redemptions").insert([
+      {
+        client_email: user.email,
+        reward: label,
+        points_used: cost,
+      },
+    ]);
+
     setUser({
       ...user,
       points: newPoints,
