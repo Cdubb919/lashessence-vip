@@ -283,6 +283,15 @@ export default function App() {
                 ? `${50 - user.points} points until reward`
                 : "Reward unlocked ✨"}
             </p>
+
+            <a
+              href="https://lashessence.square.site"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block mt-4 px-5 py-2 bg-pink-500 hover:bg-pink-600 text-white rounded-xl font-medium transition"
+            >
+              Book Appointment & View Services ✨
+            </a>
           </div>
         </Card>
 
