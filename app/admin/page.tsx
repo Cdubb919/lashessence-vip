@@ -37,7 +37,31 @@ export default function AdminPage() {
   };
 
   useEffect(() => {
-    loadClients();
+    const checkAdmin = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user) {
+        window.location.href = "/";
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("clients")
+        .select("is_admin")
+        .eq("id", session.user.id)
+        .single();
+
+      if (error || !data?.is_admin) {
+        window.location.href = "/";
+        return;
+      }
+
+      loadClients();
+    };
+
+    checkAdmin();
   }, []);
 
   // ➕ ADD POINTS + EMAIL TRIGGER
@@ -61,7 +85,8 @@ export default function AdminPage() {
       .eq("email", email);
 
     if (updateError) {
-      console.error("Update error:", updateError);
+      console.error("UPDATE ERROR:", updateError);
+      alert(JSON.stringify(updateError));
       return;
     }
 
@@ -86,46 +111,42 @@ export default function AdminPage() {
   };
 
   // 🎁 REDEEM REWARD
-const redeemReward = async (
-  email: string,
-  cost: number,
-  reward: string
-) => {
-  const { data, error } = await supabase
-    .from("clients")
-    .select("*")
-    .eq("email", email)
-    .single();
+  const redeemReward = async (email: string, cost: number, reward: string) => {
+    const { data, error } = await supabase
+      .from("clients")
+      .select("*")
+      .eq("email", email)
+      .single();
 
-  if (error || !data) {
-    alert("Client not found");
-    return;
-  }
+    if (error || !data) {
+      alert("Client not found");
+      return;
+    }
 
-  if (data.points < cost) {
-    alert("Client does not have enough points.");
-    return;
-  }
+    if (data.points < cost) {
+      alert("Client does not have enough points.");
+      return;
+    }
 
-  const newPoints = data.points - cost;
+    const newPoints = data.points - cost;
 
-  const { error: updateError } = await supabase
-    .from("clients")
-    .update({ points: newPoints })
-    .eq("email", email);
+    const { error: updateError } = await supabase
+      .from("clients")
+      .update({ points: newPoints })
+      .eq("email", email);
 
-  if (updateError) {
-    console.error(updateError);
-    alert("Failed to redeem reward");
-    return;
-  }
+    if (updateError) {
+      console.error(updateError);
+      alert("Failed to redeem reward");
+      return;
+    }
 
-  alert(
-    `${reward} redeemed successfully.\n\nClient should show this reward at their next visit.`
-  );
+    alert(
+      `${reward} redeemed successfully.\n\nClient should show this reward at their next visit.`,
+    );
 
-  loadClients();
-};
+    loadClients();
+  };
 
   // 🔍 FILTER SEARCH
   const filteredClients = clients.filter((c) =>
