@@ -164,7 +164,9 @@ export default function App() {
       points: newPoints,
     });
 
-    alert(`${label} redeemed ✨`);
+    alert(
+      `${label} redeemed successfully ✨\n\nShow this reward at your next appointment.`,
+    );
   };
 
   // LOADING
