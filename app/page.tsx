@@ -26,7 +26,7 @@ export default function App() {
       .from("clients")
       .select("email, points, is_admin")
       .eq("id", userId)
-      .single();
+      .maybeSingle();
 
     if (error || !data) {
       console.error("Profile load error:", error);
@@ -45,7 +45,13 @@ export default function App() {
     const init = async () => {
       setLoading(true);
 
-      const { data } = await supabase.auth.getSession();
+      const { data, error } = await supabase.auth.getSession();
+
+      if (error) {
+        console.error("Session load error:", error);
+        setLoading(false);
+        return;
+      }
 
       if (data.session?.user) {
         await loadUserProfile(data.session.user.id);
@@ -72,12 +78,23 @@ export default function App() {
 
   // LOGIN
   const handleLogin = async () => {
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanEmail || !password) {
+      alert("Please enter your email and password.");
+      return;
+    }
+
     const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim().toLowerCase(),
+      email: cleanEmail,
       password,
     });
 
-    if (error) return alert(error.message);
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
     if (!data.session?.user) return;
 
     await loadUserProfile(data.session.user.id);
@@ -86,22 +103,42 @@ export default function App() {
 
   // LOGOUT
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      console.error("Logout error:", error);
+      alert("Unable to log out. Please try again.");
+      return;
+    }
+
     setUser(null);
     setIsNewUser(false);
+    setEmail("");
+    setPassword("");
   };
 
   // SIGNUP
   const handleSignup = async () => {
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanEmail || !password) {
+      alert("Please enter an email and password.");
+      return;
+    }
+
     const { data, error } = await supabase.auth.signUp({
-      email: email.trim().toLowerCase(),
+      email: cleanEmail,
       password,
     });
 
-    if (error) return alert(error.message);
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
     if (!data.user) return;
 
-    await supabase.from("clients").insert([
+    const { error: insertError } = await supabase.from("clients").insert([
       {
         id: data.user.id,
         email: data.user.email,
@@ -110,14 +147,30 @@ export default function App() {
       },
     ]);
 
+    if (insertError) {
+      console.error("Client insert error:", insertError);
+      alert(
+        "Your account was created, but your rewards profile could not be set up.",
+      );
+      return;
+    }
+
     try {
-      await fetch("/api/send-welcome-email", {
+      const response = await fetch("/api/send-welcome-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: data.user.email }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: data.user.email,
+        }),
       });
+
+      if (!response.ok) {
+        console.error("Welcome email failed:", await response.text());
+      }
     } catch (err) {
-      console.error(err);
+      console.error("Welcome email error:", err);
     }
 
     setUser({
@@ -129,7 +182,7 @@ export default function App() {
     setIsNewUser(true);
   };
 
-  // 💎 REDEEM FUNCTION (NEW)
+  // REDEEM REWARD
   const redeemReward = async (cost: number, label: string) => {
     if (!user) return;
 
@@ -138,26 +191,44 @@ export default function App() {
       return;
     }
 
+    const confirmed = window.confirm(`Redeem ${label} for ${cost} points?`);
+
+    if (!confirmed) return;
+
     const newPoints = user.points - cost;
 
-    const { error } = await supabase
+    const { error: updateError } = await supabase
       .from("clients")
       .update({ points: newPoints })
       .eq("email", user.email);
 
-    if (error) {
-      console.error("Redeem error:", error);
-      alert("Something went wrong redeeming reward.");
+    if (updateError) {
+      console.error("Redeem error:", updateError);
+      alert("Something went wrong while redeeming your reward.");
       return;
     }
 
-    await supabase.from("reward_redemptions").insert([
-      {
-        client_email: user.email,
-        reward: label,
-        points_used: cost,
-      },
-    ]);
+    const { error: redemptionError } = await supabase
+      .from("reward_redemptions")
+      .insert([
+        {
+          client_email: user.email,
+          reward: label,
+          points_used: cost,
+        },
+      ]);
+
+    if (redemptionError) {
+      console.error("Redemption history error:", redemptionError);
+
+      await supabase
+        .from("clients")
+        .update({ points: user.points })
+        .eq("email", user.email);
+
+      alert("Your reward could not be recorded. Your points were restored.");
+      return;
+    }
 
     setUser({
       ...user,
@@ -172,9 +243,15 @@ export default function App() {
   // LOADING
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-pink-50">
-        <p className="text-pink-500 animate-pulse">
-          Loading Lash Essence VIP...
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#F8F4EE] px-6">
+        <img
+          src="/logo.png"
+          alt="Essence Beauty & Wellness"
+          className="w-28 h-auto mb-6"
+        />
+
+        <p className="text-[#9B7B3E] animate-pulse font-medium">
+          Loading your VIP experience...
         </p>
       </div>
     );
@@ -183,171 +260,340 @@ export default function App() {
   // LOGIN SCREEN
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pink-50 via-white to-pink-100 p-6">
-        <Card className="p-8 rounded-3xl shadow-2xl w-[360px] text-center bg-white/70 backdrop-blur-xl border border-pink-100">
-          <img src="/logo.jpg" className="w-24 mx-auto mb-4 rounded-full" />
+      <div className="min-h-screen flex items-center justify-center bg-[radial-gradient(circle_at_top,#ffffff_0%,#F8F4EE_48%,#EEE4D4_100%)] p-6">
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45 }}
+          className="w-full max-w-[390px]"
+        >
+          <Card className="overflow-hidden rounded-[32px] border border-[#D9C59D]/60 bg-white/85 p-8 text-center shadow-[0_24px_70px_rgba(55,42,23,0.14)] backdrop-blur-xl">
+            <img
+              src="/logo.png"
+              alt="Essence Beauty & Wellness"
+              className="w-36 h-auto mx-auto mb-5"
+            />
 
-          <h1 className="text-2xl font-semibold text-pink-600">
-            Lash Essence VIP
-          </h1>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-[#9B7B3E]">
+              Beauty • Wellness • Education
+            </p>
 
-          <p className="text-xs text-gray-500 mb-6">
-            Luxury Rewards Experience
-          </p>
+            <h1 className="mt-3 text-3xl font-semibold text-[#171717]">
+              VIP Rewards
+            </h1>
 
-          <Input
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="mb-2"
-          />
+            <p className="mt-2 mb-7 text-sm leading-6 text-[#6F675D]">
+              Earn points, unlock exclusive rewards, and enjoy more of the
+              services you love.
+            </p>
 
-          <Input
-            placeholder="Password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="mb-4"
-          />
+            <div className="space-y-3">
+              <Input
+                type="email"
+                placeholder="Email address"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleLogin();
+                }}
+                className="h-12 rounded-xl border-[#DCCBAA] bg-white text-[#171717] placeholder:text-[#9A9288] focus-visible:ring-[#C6A86B]"
+              />
 
-          <Button
-            className="w-full mb-2 bg-pink-500 hover:bg-pink-600 text-white"
-            onClick={handleLogin}
-          >
-            Sign In
-          </Button>
+              <Input
+                type="password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleLogin();
+                }}
+                className="h-12 rounded-xl border-[#DCCBAA] bg-white text-[#171717] placeholder:text-[#9A9288] focus-visible:ring-[#C6A86B]"
+              />
 
-          <Button
-            className="w-full bg-white border border-pink-200 text-pink-600 hover:bg-pink-50"
-            onClick={handleSignup}
-          >
-            Create Account
-          </Button>
-        </Card>
+              <Button
+                className="h-12 w-full rounded-xl bg-[#171717] text-white hover:bg-[#2B2B2B]"
+                onClick={handleLogin}
+              >
+                Sign In
+              </Button>
+
+              <Button
+                variant="outline"
+                className="h-12 w-full rounded-xl border-[#C6A86B] bg-[#FBF8F2] text-[#7A5D28] hover:bg-[#F4EAD7]"
+                onClick={handleSignup}
+              >
+                Create VIP Account
+              </Button>
+            </div>
+
+            <a
+              href="https://essencebeautyandwellness.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-6 inline-block text-xs font-medium text-[#8A6A32] underline-offset-4 hover:underline"
+            >
+              Visit Essence Beauty & Wellness
+            </a>
+          </Card>
+        </motion.div>
       </div>
     );
   }
 
   // DASHBOARD
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-pink-100 p-6">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,#ffffff_0%,#F8F4EE_52%,#EEE4D4_100%)] px-4 py-6 sm:px-6 sm:py-10">
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        className="space-y-6"
+        className="mx-auto max-w-5xl space-y-6"
       >
         {/* HEADER */}
-        <Card className="p-6 rounded-3xl shadow-xl bg-white/70 backdrop-blur-xl border border-pink-100">
-          <div className="flex justify-between items-center mb-4">
-            <div className="flex items-center gap-3">
-              <img src="/logo.jpg" className="w-12 h-12 rounded-full" />
+        <Card className="rounded-[32px] border border-[#D9C59D]/60 bg-white/85 p-5 shadow-[0_20px_60px_rgba(55,42,23,0.12)] backdrop-blur-xl sm:p-7">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-4">
+              <img
+                src="/logo.png"
+                alt="Essence Beauty & Wellness"
+                className="w-20 h-auto shrink-0"
+              />
 
-              <div>
-                <h2 className="text-lg font-semibold text-pink-700">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[#9B7B3E]">
+                  Essence Beauty & Wellness
+                </p>
+
+                <h2 className="mt-1 text-2xl font-semibold text-[#171717]">
                   VIP Dashboard
                 </h2>
-                <p className="text-xs text-gray-500">{user.email}</p>
+
+                <p className="mt-1 truncate text-xs text-[#756D63]">
+                  {user.email}
+                </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               {user.isAdmin && (
                 <a
                   href="/admin"
-                  className="text-pink-600 text-sm font-medium hover:underline"
+                  className="rounded-xl border border-[#C6A86B] px-4 py-2 text-sm font-semibold text-[#7A5D28] transition hover:bg-[#F4EAD7]"
                 >
-                  Open Admin CRM →
+                  Open Admin CRM
                 </a>
               )}
 
               <Button
                 onClick={handleLogout}
                 variant="outline"
-                className="text-pink-600 border-pink-200"
+                className="rounded-xl border-[#D4C6AF] text-[#514A42] hover:bg-[#F5F0E8]"
               >
                 Logout
               </Button>
             </div>
           </div>
 
-          {/* POINTS */}
-          <div className="text-center py-6">
-            <p className="text-sm text-gray-500">Your Balance</p>
-
-            <motion.h1 className="text-5xl font-bold text-pink-600">
-              {user.points}
-            </motion.h1>
-
-            <p className="text-xs text-gray-500 mt-2">
-              {user.points < 50
-                ? `${50 - user.points} points until reward`
-                : "Reward unlocked ✨"}
+          <div className="mt-7 rounded-[28px] bg-[#171717] px-6 py-8 text-center text-white shadow-inner">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[#D8C18F]">
+              Your VIP Balance
             </p>
+
+            <motion.p
+              initial={{ scale: 0.92 }}
+              animate={{ scale: 1 }}
+              className="mt-2 text-6xl font-semibold"
+            >
+              {user.points}
+            </motion.p>
+
+            <p className="mt-2 text-sm text-[#D8D3CB]">
+              {user.points < 50
+                ? `${50 - user.points} points until your first reward`
+                : "You have a reward ready to redeem ✨"}
+            </p>
+
+            <div className="mx-auto mt-5 h-2 max-w-md overflow-hidden rounded-full bg-white/15">
+              <div
+                className="h-full rounded-full bg-[#C6A86B] transition-all duration-500"
+                style={{
+                  width: `${Math.min((user.points / 50) * 100, 100)}%`,
+                }}
+              />
+            </div>
 
             <a
               href="https://lashessence.square.site"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block mt-4 px-5 py-2 bg-pink-500 hover:bg-pink-600 text-white rounded-xl font-medium transition"
+              className="mt-6 inline-flex items-center justify-center rounded-xl bg-[#C6A86B] px-6 py-3 text-sm font-semibold text-[#171717] transition hover:bg-[#D6BA7F]"
             >
-              Book Appointment & View Services ✨
+              Book Appointment & View Services
             </a>
           </div>
         </Card>
 
-        {/* ADMIN */}
-        {user.isAdmin && (
-          <Card className="p-4 bg-pink-50 border border-pink-200">
-            <p className="font-semibold text-pink-700">Admin Access Enabled</p>
+        {isNewUser && (
+          <Card className="rounded-2xl border border-[#D9C59D] bg-[#FFF9EC] p-4 text-center">
+            <p className="font-semibold text-[#7A5D28]">
+              Welcome to Essence Beauty & Wellness VIP ✨
+            </p>
+            <p className="mt-1 text-sm text-[#6F675D]">
+              Your first 10 reward points have been added.
+            </p>
           </Card>
         )}
 
-        {/* REWARDS (WITH REDEEM BUTTONS) */}
-        <Card className="p-5 rounded-3xl shadow-md bg-white/70 border border-pink-100">
-          <CardContent>
-            <h3 className="text-lg font-semibold text-pink-700 mb-4">
-              Rewards
-            </h3>
+        {/* REWARDS */}
+        <Card className="rounded-[32px] border border-[#D9C59D]/60 bg-white/85 p-5 shadow-[0_16px_45px_rgba(55,42,23,0.08)] sm:p-7">
+          <CardContent className="p-0">
+            <div className="mb-5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[#9B7B3E]">
+                Member Benefits
+              </p>
 
-            <div className="grid md:grid-cols-3 gap-4">
+              <h3 className="mt-1 text-2xl font-semibold text-[#171717]">
+                Your VIP Rewards
+              </h3>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
               {[
                 { points: 50, label: "$10 Off" },
                 { points: 100, label: "$25 Off" },
-                { points: 150, label: "Free Add-On" },
-              ].map((r) => (
-                <div
-                  key={r.points}
-                  className="p-4 border rounded-xl bg-white space-y-2"
-                >
-                  <p className="font-semibold text-pink-700">
-                    {r.points} Points
-                  </p>
+                { points: 150, label: "Free Luxury Add-On" },
+              ].map((reward) => {
+                const unlocked = user.points >= reward.points;
 
-                  <p className="text-sm text-gray-600">{r.label}</p>
-
-                  <Button
-                    className="w-full bg-pink-500 hover:bg-pink-600 text-white"
-                    onClick={() => redeemReward(r.points, r.label)}
+                return (
+                  <div
+                    key={reward.points}
+                    className={`rounded-2xl border p-5 transition ${
+                      unlocked
+                        ? "border-[#C6A86B] bg-[#FFF9EC]"
+                        : "border-[#E5DDD0] bg-[#FAF8F4]"
+                    }`}
                   >
-                    Redeem
-                  </Button>
-                </div>
-              ))}
+                    <p className="text-sm font-semibold text-[#9B7B3E]">
+                      {reward.points} Points
+                    </p>
+
+                    <p className="mt-2 text-lg font-semibold text-[#171717]">
+                      {reward.label}
+                    </p>
+
+                    <p className="mt-1 text-xs text-[#756D63]">
+                      {unlocked
+                        ? "Available to redeem now"
+                        : `${reward.points - user.points} more points needed`}
+                    </p>
+
+                    <Button
+                      disabled={!unlocked}
+                      className={`mt-5 w-full rounded-xl ${
+                        unlocked
+                          ? "bg-[#171717] text-white hover:bg-[#2B2B2B]"
+                          : "cursor-not-allowed bg-[#DED8CE] text-[#8B847B]"
+                      }`}
+                      onClick={() => redeemReward(reward.points, reward.label)}
+                    >
+                      {unlocked ? "Redeem Reward" : "Locked"}
+                    </Button>
+                  </div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
 
         {/* HOW TO EARN */}
-        <Card className="p-5 rounded-3xl shadow-md bg-white/70 border border-pink-100">
-          <h3 className="text-lg font-semibold text-pink-700 mb-3">
-            How You Earn Points ✨
+        <Card className="rounded-[32px] border border-[#D9C59D]/60 bg-white/85 p-5 shadow-[0_16px_45px_rgba(55,42,23,0.08)] sm:p-7">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[#9B7B3E]">
+            Keep Earning
+          </p>
+
+          <h3 className="mt-1 text-2xl font-semibold text-[#171717]">
+            How You Earn Points
           </h3>
 
-          <div className="space-y-2 text-sm text-gray-600">
-            <p>💖 +10 — Lash appointment visit</p>
-            <p>🎉 +10 — Sign up bonus</p>
-            <p>💬 +5 — 5-star review</p>
-            <p>👯 +5 — Referral</p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {[
+              {
+                amount: "+10",
+                title: "Appointment Visit",
+                description: "Earn points after an eligible service visit.",
+              },
+              {
+                amount: "+10",
+                title: "VIP Sign-Up",
+                description: "Your welcome bonus for joining the program.",
+              },
+              {
+                amount: "+5",
+                title: "Five-Star Review",
+                description: "Share your experience and receive bonus points.",
+              },
+              {
+                amount: "+5",
+                title: "Client Referral",
+                description: "Refer someone new to Essence Beauty & Wellness.",
+              },
+            ].map((item) => (
+              <div
+                key={item.title}
+                className="flex items-start gap-4 rounded-2xl border border-[#E4D8C3] bg-[#FBF8F2] p-4"
+              >
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#171717] text-sm font-semibold text-[#D8C18F]">
+                  {item.amount}
+                </div>
+
+                <div>
+                  <p className="font-semibold text-[#171717]">{item.title}</p>
+                  <p className="mt-1 text-sm leading-5 text-[#756D63]">
+                    {item.description}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        {/* QUICK LINKS */}
+        <Card className="rounded-[32px] border border-[#D9C59D]/60 bg-[#171717] p-6 text-white shadow-[0_16px_45px_rgba(23,23,23,0.18)]">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[#D8C18F]">
+                Essence Beauty & Wellness
+              </p>
+
+              <h3 className="mt-2 text-xl font-semibold">
+                Ready for your next appointment?
+              </h3>
+
+              <p className="mt-1 text-sm text-[#D5D0C8]">
+                Explore services, learn more about the studio, or reserve your
+                next visit.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <a
+                href="https://essencebeautyandwellness.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-xl border border-white/25 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+              >
+                Visit Website
+              </a>
+
+              <a
+                href="https://lashessence.square.site"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-xl bg-[#C6A86B] px-5 py-3 text-sm font-semibold text-[#171717] transition hover:bg-[#D6BA7F]"
+              >
+                Book Now
+              </a>
+            </div>
           </div>
         </Card>
       </motion.div>
