@@ -30,6 +30,15 @@ type Redemption = {
   created_at: string;
 };
 
+type PointTransaction = {
+  id: string;
+  client_email: string;
+  points: number;
+  reason: string;
+  transaction_type: string;
+  created_at: string;
+};
+
 const getTier = (points: number): Tier => {
   if (points >= 200) {
     return {
@@ -85,6 +94,10 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [redemptions, setRedemptions] = useState<Redemption[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [pointTransactions, setPointTransactions] = useState<
+    PointTransaction[]
+  >([]);
+  const [pointsHistoryLoading, setPointsHistoryLoading] = useState(false);
 
   const loadRedemptionHistory = async (clientEmail: string) => {
     setHistoryLoading(true);
@@ -105,6 +118,25 @@ export default function App() {
     setHistoryLoading(false);
   };
 
+  const loadPointsHistory = async (clientEmail: string) => {
+    setPointsHistoryLoading(true);
+
+    const { data, error } = await supabase
+      .from("points_transactions")
+      .select("id, client_email, points, reason, transaction_type, created_at")
+      .eq("client_email", clientEmail.toLowerCase())
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Points history load error:", error);
+      setPointTransactions([]);
+    } else {
+      setPointTransactions(data || []);
+    }
+
+    setPointsHistoryLoading(false);
+  };
+
   // LOAD PROFILE
   const loadUserProfile = async (userId: string) => {
     const { data, error } = await supabase
@@ -123,7 +155,10 @@ export default function App() {
       points: data.points ?? 0,
       isAdmin: data.is_admin === true,
     });
-    await loadRedemptionHistory(data.email);
+    await Promise.all([
+      loadRedemptionHistory(data.email),
+      loadPointsHistory(data.email),
+    ]);
   };
 
   // INIT SESSION
@@ -187,6 +222,36 @@ export default function App() {
     setIsNewUser(false);
   };
 
+  // Forgot Password
+  const handleForgotPassword = async () => {
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanEmail) {
+      alert("Please enter your email address first.");
+      return;
+    }
+
+    const redirectUrl =
+      window.location.hostname === "localhost"
+        ? "http://localhost:3000/reset-password"
+        : `${window.location.origin}/reset-password`;
+
+    const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+      redirectTo: redirectUrl,
+    });
+
+    if (error) {
+      console.error("Password reset error:", error);
+      alert(error.message);
+      return;
+    }
+
+    alert(
+      "Password reset email sent ✨\n\n" +
+        "Please check your inbox. If you don't see it, check your Promotions, Spam, or Junk folder.",
+    );
+  };
+
   // LOGOUT
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
@@ -200,6 +265,7 @@ export default function App() {
     setUser(null);
     setIsNewUser(false);
     setRedemptions([]);
+    setPointTransactions([]);
     setEmail("");
     setPassword("");
   };
@@ -240,6 +306,21 @@ export default function App() {
         "Your account was created, but your rewards profile could not be set up.",
       );
       return;
+    }
+
+    const { error: signupTransactionError } = await supabase
+      .from("points_transactions")
+      .insert([
+        {
+          client_email: data.user.email!.toLowerCase(),
+          points: 10,
+          reason: "Essence VIP sign-up bonus",
+          transaction_type: "earned",
+        },
+      ]);
+
+    if (signupTransactionError) {
+      console.error("Signup points transaction error:", signupTransactionError);
     }
 
     try {
@@ -323,12 +404,30 @@ export default function App() {
       return;
     }
 
+    const { error: transactionError } = await supabase
+      .from("points_transactions")
+      .insert([
+        {
+          client_email: user.email.toLowerCase(),
+          points: -cost,
+          reason: `${label} reward redeemed`,
+          transaction_type: "redeemed",
+        },
+      ]);
+
+    if (transactionError) {
+      console.error("Points transaction error:", transactionError);
+    }
+
     setUser({
       ...user,
       points: newPoints,
     });
 
-    await loadRedemptionHistory(user.email);
+    await Promise.all([
+      loadRedemptionHistory(user.email),
+      loadPointsHistory(user.email),
+    ]);
 
     alert(
       `${label} redeemed successfully ✨\n\nShow this reward at your next appointment.`,
@@ -411,6 +510,14 @@ export default function App() {
               >
                 Sign In
               </Button>
+
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                className="w-full text-sm font-medium text-[#8A6A32] underline-offset-4 hover:underline"
+              >
+                Forgot your password?
+              </button>
 
               <Button
                 variant="outline"
@@ -742,6 +849,117 @@ export default function App() {
               })}
             </div>
           </CardContent>
+        </Card>
+
+        {/* POINTS HISTORY */}
+        <Card className="rounded-[32px] border border-[#D9C59D]/60 bg-white/85 p-5 shadow-[0_16px_45px_rgba(55,42,23,0.08)] sm:p-7">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[#9B7B3E]">
+                Account Activity
+              </p>
+
+              <h3 className="mt-1 text-2xl font-semibold text-[#171717]">
+                Your Points History
+              </h3>
+
+              <p className="mt-1 text-sm text-[#756D63]">
+                See how you earned and used your Essence VIP points.
+              </p>
+            </div>
+
+            {pointTransactions.length > 0 && (
+              <span className="w-fit rounded-full bg-[#171717] px-3 py-1 text-xs font-semibold text-[#D8C18F]">
+                {pointTransactions.length}{" "}
+                {pointTransactions.length === 1
+                  ? "transaction"
+                  : "transactions"}
+              </span>
+            )}
+          </div>
+
+          <div className="mt-6">
+            {pointsHistoryLoading ? (
+              <div className="rounded-2xl border border-[#E4D8C3] bg-[#FBF8F2] p-8 text-center">
+                <p className="animate-pulse text-sm font-medium text-[#9B7B3E]">
+                  Loading your points history...
+                </p>
+              </div>
+            ) : pointTransactions.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-[#D9C59D] bg-[#FBF8F2] p-8 text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#171717] text-2xl">
+                  ✨
+                </div>
+
+                <p className="mt-4 font-semibold text-[#171717]">
+                  No points activity recorded yet
+                </p>
+
+                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#756D63]">
+                  Future points earned and rewards redeemed will appear here.
+                </p>
+              </div>
+            ) : (
+              <div className="max-h-[460px] space-y-3 overflow-y-auto pr-1">
+                {pointTransactions.map((transaction) => {
+                  const earned = transaction.points > 0;
+
+                  return (
+                    <div
+                      key={transaction.id}
+                      className="flex flex-col gap-4 rounded-2xl border border-[#E4D8C3] bg-[#FBF8F2] p-4 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="flex items-start gap-4">
+                        <div
+                          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-lg font-bold ${
+                            earned
+                              ? "bg-[#171717] text-[#D8C18F]"
+                              : "bg-[#F1E5CF] text-[#784820]"
+                          }`}
+                        >
+                          {earned ? "+" : "−"}
+                        </div>
+
+                        <div>
+                          <p className="font-semibold text-[#171717]">
+                            {transaction.reason}
+                          </p>
+
+                          <p className="mt-1 text-xs capitalize text-[#756D63]">
+                            {transaction.transaction_type}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="sm:text-right">
+                        <p
+                          className={`text-lg font-bold ${
+                            earned ? "text-[#7A5D28]" : "text-[#784820]"
+                          }`}
+                        >
+                          {earned ? "+" : ""}
+                          {transaction.points} points
+                        </p>
+
+                        <p className="mt-1 text-xs text-[#8C8379]">
+                          {new Date(transaction.created_at).toLocaleString(
+                            "en-US",
+                            {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                              hour: "numeric",
+                              minute: "2-digit",
+                            },
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </Card>
 
         {/* REWARD HISTORY */}

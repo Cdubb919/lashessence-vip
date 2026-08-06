@@ -21,6 +21,15 @@ type Redemption = {
   created_at: string;
 };
 
+type PointTransaction = {
+  id: string;
+  client_email: string;
+  points: number;
+  reason: string;
+  transaction_type: string;
+  created_at: string;
+};
+
 type TierName = "Bronze" | "Silver" | "Gold" | "Platinum";
 
 type Tier = {
@@ -74,6 +83,9 @@ const getTier = (points: number): Tier => {
 export default function AdminPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [redemptions, setRedemptions] = useState<Redemption[]>([]);
+  const [pointTransactions, setPointTransactions] = useState<
+    PointTransaction[]
+  >([]);
   const [search, setSearch] = useState("");
   const [tierFilter, setTierFilter] = useState<"All" | TierName>("All");
   const [loading, setLoading] = useState(true);
@@ -85,6 +97,7 @@ export default function AdminPage() {
     const [
       { data: clientData, error: clientError },
       { data: redemptionData, error: redemptionError },
+      { data: transactionData, error: transactionError },
     ] = await Promise.all([
       supabase
         .from("clients")
@@ -94,6 +107,13 @@ export default function AdminPage() {
       supabase
         .from("reward_redemptions")
         .select("id, client_email, reward, points_used, created_at")
+        .order("created_at", { ascending: false }),
+
+      supabase
+        .from("points_transactions")
+        .select(
+          "id, client_email, points, reason, transaction_type, created_at",
+        )
         .order("created_at", { ascending: false }),
     ]);
 
@@ -108,6 +128,12 @@ export default function AdminPage() {
       console.error("Load redemptions error:", redemptionError);
     } else {
       setRedemptions(redemptionData || []);
+    }
+
+    if (transactionError) {
+      console.error("Load points transactions error:", transactionError);
+    } else {
+      setPointTransactions(transactionData || []);
     }
 
     setLoading(false);
@@ -180,6 +206,33 @@ export default function AdminPage() {
     if (updateError) {
       console.error("Update points error:", updateError);
       alert("The points could not be added.");
+      setUpdatingClient(null);
+      return;
+    }
+
+    const { error: transactionError } = await supabase
+      .from("points_transactions")
+      .insert([
+        {
+          client_email: client.email.toLowerCase(),
+          points,
+          reason,
+          transaction_type: "earned",
+        },
+      ]);
+
+    if (transactionError) {
+      console.error("Points transaction error:", transactionError);
+
+      await supabase
+        .from("clients")
+        .update({ points: client.points })
+        .eq("id", client.id);
+
+      alert(
+        "The points activity could not be recorded, so the client's balance was restored.",
+      );
+
       setUpdatingClient(null);
       return;
     }
@@ -270,6 +323,21 @@ export default function AdminPage() {
 
       setUpdatingClient(null);
       return;
+    }
+
+    const { error: transactionError } = await supabase
+      .from("points_transactions")
+      .insert([
+        {
+          client_email: client.email.toLowerCase(),
+          points: -cost,
+          reason: `${reward} reward redeemed`,
+          transaction_type: "redeemed",
+        },
+      ]);
+
+    if (transactionError) {
+      console.error("Points transaction error:", transactionError);
     }
 
     await loadDashboardData();
@@ -676,6 +744,86 @@ export default function AdminPage() {
               })
             )}
           </div>
+        </Card>
+
+        {/* POINTS LEDGER */}
+        <Card className="rounded-[32px] border border-[#D9C59D]/60 bg-white/90 p-5 shadow-[0_16px_45px_rgba(55,42,23,0.08)] sm:p-7">
+          <div className="mb-5">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[#9B7B3E]">
+              Points Activity
+            </p>
+
+            <h2 className="mt-1 text-2xl font-semibold text-[#171717]">
+              VIP Points Ledger
+            </h2>
+
+            <p className="mt-1 text-sm text-[#756D63]">
+              Review every recorded point award and reward deduction.
+            </p>
+          </div>
+
+          {loading ? (
+            <p className="animate-pulse text-sm text-[#9B7B3E]">
+              Loading points activity...
+            </p>
+          ) : pointTransactions.length === 0 ? (
+            <div className="rounded-2xl border border-[#E4D8C3] bg-[#FBF8F2] p-8 text-center">
+              <p className="text-sm text-[#756D63]">
+                No points transactions have been recorded yet.
+              </p>
+            </div>
+          ) : (
+            <div className="max-h-[500px] space-y-3 overflow-y-auto pr-1">
+              {pointTransactions.map((transaction) => {
+                const earned = transaction.points > 0;
+
+                return (
+                  <div
+                    key={transaction.id}
+                    className="flex flex-col gap-3 rounded-2xl border border-[#E4D8C3] bg-[#FBF8F2] p-4 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <p className="break-all font-semibold text-[#171717]">
+                        {transaction.client_email}
+                      </p>
+
+                      <p className="mt-1 text-sm text-[#756D63]">
+                        {transaction.reason}
+                      </p>
+
+                      <p className="mt-1 text-xs capitalize text-[#9B7B3E]">
+                        {transaction.transaction_type}
+                      </p>
+                    </div>
+
+                    <div className="sm:text-right">
+                      <p
+                        className={`text-lg font-bold ${
+                          earned ? "text-[#7A5D28]" : "text-[#784820]"
+                        }`}
+                      >
+                        {earned ? "+" : ""}
+                        {transaction.points} points
+                      </p>
+
+                      <p className="mt-1 text-xs text-[#8C8379]">
+                        {new Date(transaction.created_at).toLocaleString(
+                          "en-US",
+                          {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          },
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </Card>
 
         {/* REDEMPTION HISTORY */}
