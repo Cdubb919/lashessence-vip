@@ -12,6 +12,8 @@ type User = {
   email: string;
   points: number;
   birthday: string | null;
+  referralCode: string | null;
+  referredBy: string | null;
   isAdmin?: boolean;
 };
 
@@ -47,6 +49,15 @@ type BirthdayRewardClaim = {
   client_email: string;
   birthday_year: number;
   reward: string;
+  created_at: string;
+};
+
+type Referral = {
+  id: string;
+  referrer_id: string;
+  referred_client_id: string;
+  referral_code: string;
+  points_awarded: number;
   created_at: string;
 };
 
@@ -114,6 +125,11 @@ export default function App() {
     useState<BirthdayRewardClaim | null>(null);
   const [savingBirthday, setSavingBirthday] = useState(false);
   const [claimingBirthdayReward, setClaimingBirthdayReward] = useState(false);
+  const [referralInput, setReferralInput] = useState("");
+  const [referrals, setReferrals] = useState<Referral[]>([]);
+  const [referralsLoading, setReferralsLoading] = useState(false);
+  const [claimingReferral, setClaimingReferral] = useState(false);
+  const [copiedReferralCode, setCopiedReferralCode] = useState(false);
 
   const loadRedemptionHistory = async (clientEmail: string) => {
     setHistoryLoading(true);
@@ -153,14 +169,33 @@ export default function App() {
     setPointsHistoryLoading(false);
   };
 
+  const loadReferralHistory = async (clientId: string) => {
+    setReferralsLoading(true);
+
+    const { data, error } = await supabase
+      .from("referrals")
+      .select(
+        "id, referrer_id, referred_client_id, referral_code, points_awarded, created_at",
+      )
+      .eq("referrer_id", clientId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Referral history load error:", error);
+      setReferrals([]);
+    } else {
+      setReferrals(data || []);
+    }
+
+    setReferralsLoading(false);
+  };
+
   const loadBirthdayClaim = async (clientId: string) => {
     const currentYear = new Date().getFullYear();
 
     const { data, error } = await supabase
       .from("birthday_reward_claims")
-      .select(
-        "id, client_id, client_email, birthday_year, reward, created_at",
-      )
+      .select("id, client_id, client_email, birthday_year, reward, created_at")
       .eq("client_id", clientId)
       .eq("birthday_year", currentYear)
       .maybeSingle();
@@ -178,7 +213,9 @@ export default function App() {
   const loadUserProfile = async (userId: string) => {
     const { data, error } = await supabase
       .from("clients")
-      .select("id, email, points, birthday, is_admin")
+      .select(
+        "id, email, points, birthday, referral_code, referred_by, is_admin",
+      )
       .eq("id", userId)
       .maybeSingle();
 
@@ -192,6 +229,8 @@ export default function App() {
       email: data.email,
       points: data.points ?? 0,
       birthday: data.birthday ?? null,
+      referralCode: data.referral_code ?? null,
+      referredBy: data.referred_by ?? null,
       isAdmin: data.is_admin === true,
     });
 
@@ -199,6 +238,7 @@ export default function App() {
       loadRedemptionHistory(data.email),
       loadPointsHistory(data.email),
       loadBirthdayClaim(data.id),
+      loadReferralHistory(data.id),
     ]);
   };
 
@@ -309,6 +349,9 @@ export default function App() {
     setPointTransactions([]);
     setBirthdayInput("");
     setBirthdayClaim(null);
+    setReferralInput("");
+    setReferrals([]);
+    setCopiedReferralCode(false);
     setEmail("");
     setPassword("");
   };
@@ -389,6 +432,8 @@ export default function App() {
       email: data.user.email!,
       points: 10,
       birthday: null,
+      referralCode: null,
+      referredBy: null,
       isAdmin: false,
     });
 
@@ -473,7 +518,9 @@ export default function App() {
     const currentYear = new Date().getFullYear();
 
     if (birthdayMonth !== currentMonth) {
-      alert("Your birthday reward is available only during your birthday month.");
+      alert(
+        "Your birthday reward is available only during your birthday month.",
+      );
       return;
     }
 
@@ -495,9 +542,7 @@ export default function App() {
           reward: "Free Luxury Add-On",
         },
       ])
-      .select(
-        "id, client_id, client_email, birthday_year, reward, created_at",
-      )
+      .select("id, client_id, client_email, birthday_year, reward, created_at")
       .single();
 
     if (error) {
@@ -520,6 +565,60 @@ export default function App() {
     alert(
       "Happy Birthday! 🎂✨\n\nYour complimentary luxury add-on has been claimed. Show this reward at your appointment during your birthday month.",
     );
+  };
+
+  const copyReferralCode = async () => {
+    if (!user?.referralCode) return;
+
+    try {
+      await navigator.clipboard.writeText(user.referralCode);
+      setCopiedReferralCode(true);
+      window.setTimeout(() => setCopiedReferralCode(false), 2000);
+    } catch (error) {
+      console.error("Copy referral code error:", error);
+      alert(`Your referral code is ${user.referralCode}`);
+    }
+  };
+
+  const claimReferralCode = async () => {
+    if (!user || user.referredBy) return;
+
+    const cleanCode = referralInput.trim().toUpperCase();
+
+    if (!cleanCode) {
+      alert("Please enter a referral code.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Apply referral code ${cleanCode}?\n\nA referral code can be applied only once to your account.`,
+    );
+
+    if (!confirmed) return;
+
+    setClaimingReferral(true);
+
+    const { data, error } = await supabase.rpc("claim_referral_code", {
+      input_code: cleanCode,
+    });
+
+    if (error) {
+      console.error("Referral claim error:", error);
+      alert(error.message || "That referral code could not be applied.");
+      setClaimingReferral(false);
+      return;
+    }
+
+    setReferralInput("");
+    await loadUserProfile(user.id);
+    setClaimingReferral(false);
+
+    const message =
+      data && typeof data === "object" && "message" in data
+        ? String(data.message)
+        : "Referral code applied successfully.";
+
+    alert(`${message} ✨\n\nThe referring VIP member received 5 points.`);
   };
 
   // REDEEM REWARD
@@ -831,8 +930,8 @@ export default function App() {
             </div>
 
             <p className="mt-6 text-sm text-[#D8D3CB]">
-              {user.points < 50
-                ? `${50 - user.points} points until your first reward`
+              {user.points < 100
+                ? `${100 - user.points} points until your first reward`
                 : "You have a reward ready to redeem ✨"}
             </p>
 
@@ -1071,6 +1170,169 @@ export default function App() {
           )}
         </Card>
 
+        {/* REFERRAL PROGRAM */}
+        <Card className="rounded-[32px] border border-[#D9C59D]/60 bg-white/85 p-5 shadow-[0_16px_45px_rgba(55,42,23,0.08)] sm:p-7">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[#9B7B3E]">
+            Share the Experience
+          </p>
+
+          <h3 className="mt-1 text-2xl font-semibold text-[#171717]">
+            VIP Referral Program
+          </h3>
+
+          <p className="mt-1 text-sm text-[#756D63]">
+            Share your personal code. You receive 5 VIP points when a new member
+            successfully applies it.
+          </p>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-[#C6A86B] bg-[#FFF9EC] p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#9B7B3E]">
+                Your Referral Code
+              </p>
+
+              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="flex-1 rounded-xl border border-[#D9C59D] bg-white px-4 py-3 text-center font-mono text-lg font-bold tracking-wider text-[#171717]">
+                  {user.referralCode ?? "Generating code..."}
+                </div>
+
+                <Button
+                  type="button"
+                  disabled={!user.referralCode}
+                  onClick={copyReferralCode}
+                  className="h-12 rounded-xl bg-[#171717] px-5 text-white hover:bg-[#2B2B2B]"
+                >
+                  {copiedReferralCode ? "Copied!" : "Copy Code"}
+                </Button>
+              </div>
+
+              <p className="mt-3 text-xs leading-5 text-[#756D63]">
+                Send this code to a new client before they apply a referral code
+                to their VIP account.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-[#E4D8C3] bg-[#FBF8F2] p-5">
+              <p className="font-semibold text-[#171717]">
+                Were you referred by a VIP member?
+              </p>
+
+              {user.referredBy ? (
+                <div className="mt-4 rounded-xl border border-[#C6A86B] bg-white p-4">
+                  <p className="font-semibold text-[#7A5D28]">
+                    Referral code applied ✓
+                  </p>
+                  <p className="mt-1 text-sm text-[#756D63]">
+                    A referral has already been connected to your account.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <p className="mt-2 text-sm leading-6 text-[#756D63]">
+                    Enter the code shared by the person who referred you. Codes
+                    can be applied only once.
+                  </p>
+
+                  <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                    <Input
+                      value={referralInput}
+                      onChange={(event) =>
+                        setReferralInput(event.target.value.toUpperCase())
+                      }
+                      placeholder="ESSENCE-XXXXXX"
+                      className="h-12 rounded-xl border-[#DCCBAA] bg-white uppercase focus-visible:ring-[#C6A86B]"
+                    />
+
+                    <Button
+                      type="button"
+                      disabled={claimingReferral || !referralInput.trim()}
+                      onClick={claimReferralCode}
+                      className="h-12 rounded-xl bg-[#C6A86B] px-6 text-[#171717] hover:bg-[#D6BA7F]"
+                    >
+                      {claimingReferral ? "Applying..." : "Apply Code"}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-6 border-t border-[#E4D8C3] pt-6">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[#9B7B3E]">
+                  Referral Activity
+                </p>
+                <h4 className="mt-1 text-xl font-semibold text-[#171717]">
+                  Your Successful Referrals
+                </h4>
+              </div>
+
+              {referrals.length > 0 && (
+                <span className="w-fit rounded-full bg-[#171717] px-3 py-1 text-xs font-semibold text-[#D8C18F]">
+                  {referrals.length}{" "}
+                  {referrals.length === 1 ? "referral" : "referrals"}
+                </span>
+              )}
+            </div>
+
+            <div className="mt-4">
+              {referralsLoading ? (
+                <div className="rounded-2xl border border-[#E4D8C3] bg-[#FBF8F2] p-6 text-center">
+                  <p className="animate-pulse text-sm font-medium text-[#9B7B3E]">
+                    Loading referral activity...
+                  </p>
+                </div>
+              ) : referrals.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-[#D9C59D] bg-[#FBF8F2] p-6 text-center">
+                  <p className="font-semibold text-[#171717]">
+                    No successful referrals yet
+                  </p>
+                  <p className="mt-2 text-sm text-[#756D63]">
+                    Your completed referrals and earned points will appear here.
+                  </p>
+                </div>
+              ) : (
+                <div className="max-h-[360px] space-y-3 overflow-y-auto pr-1">
+                  {referrals.map((referral) => (
+                    <div
+                      key={referral.id}
+                      className="flex flex-col gap-3 rounded-2xl border border-[#E4D8C3] bg-[#FBF8F2] p-4 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div>
+                        <p className="font-semibold text-[#171717]">
+                          Successful VIP Referral
+                        </p>
+                        <p className="mt-1 text-sm text-[#756D63]">
+                          Code used: {referral.referral_code}
+                        </p>
+                      </div>
+
+                      <div className="sm:text-right">
+                        <p className="font-bold text-[#7A5D28]">
+                          +{referral.points_awarded} points
+                        </p>
+                        <p className="mt-1 text-xs text-[#8C8379]">
+                          {new Date(referral.created_at).toLocaleString(
+                            "en-US",
+                            {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                              hour: "numeric",
+                              minute: "2-digit",
+                            },
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </Card>
+
         {/* REWARDS */}
         <Card className="rounded-[32px] border border-[#D9C59D]/60 bg-white/85 p-5 shadow-[0_16px_45px_rgba(55,42,23,0.08)] sm:p-7">
           <CardContent className="p-0">
@@ -1086,8 +1348,8 @@ export default function App() {
 
             <div className="grid gap-4 md:grid-cols-3">
               {[
-                { points: 50, label: "$10 Off" },
-                { points: 100, label: "$25 Off" },
+                { points: 100, label: "$10 Off" },
+                { points: 250, label: "$25 Off" },
                 { points: 150, label: "Free Luxury Add-On" },
               ].map((reward) => {
                 const unlocked = user.points >= reward.points;
