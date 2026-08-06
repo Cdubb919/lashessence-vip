@@ -8,8 +8,10 @@ import { motion } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 
 type User = {
+  id: string;
   email: string;
   points: number;
+  birthday: string | null;
   isAdmin?: boolean;
 };
 
@@ -36,6 +38,15 @@ type PointTransaction = {
   points: number;
   reason: string;
   transaction_type: string;
+  created_at: string;
+};
+
+type BirthdayRewardClaim = {
+  id: string;
+  client_id: string;
+  client_email: string;
+  birthday_year: number;
+  reward: string;
   created_at: string;
 };
 
@@ -98,6 +109,11 @@ export default function App() {
     PointTransaction[]
   >([]);
   const [pointsHistoryLoading, setPointsHistoryLoading] = useState(false);
+  const [birthdayInput, setBirthdayInput] = useState("");
+  const [birthdayClaim, setBirthdayClaim] =
+    useState<BirthdayRewardClaim | null>(null);
+  const [savingBirthday, setSavingBirthday] = useState(false);
+  const [claimingBirthdayReward, setClaimingBirthdayReward] = useState(false);
 
   const loadRedemptionHistory = async (clientEmail: string) => {
     setHistoryLoading(true);
@@ -137,11 +153,32 @@ export default function App() {
     setPointsHistoryLoading(false);
   };
 
+  const loadBirthdayClaim = async (clientId: string) => {
+    const currentYear = new Date().getFullYear();
+
+    const { data, error } = await supabase
+      .from("birthday_reward_claims")
+      .select(
+        "id, client_id, client_email, birthday_year, reward, created_at",
+      )
+      .eq("client_id", clientId)
+      .eq("birthday_year", currentYear)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Birthday claim load error:", error);
+      setBirthdayClaim(null);
+      return;
+    }
+
+    setBirthdayClaim(data ?? null);
+  };
+
   // LOAD PROFILE
   const loadUserProfile = async (userId: string) => {
     const { data, error } = await supabase
       .from("clients")
-      .select("email, points, is_admin")
+      .select("id, email, points, birthday, is_admin")
       .eq("id", userId)
       .maybeSingle();
 
@@ -151,13 +188,17 @@ export default function App() {
     }
 
     setUser({
+      id: data.id,
       email: data.email,
       points: data.points ?? 0,
+      birthday: data.birthday ?? null,
       isAdmin: data.is_admin === true,
     });
+
     await Promise.all([
       loadRedemptionHistory(data.email),
       loadPointsHistory(data.email),
+      loadBirthdayClaim(data.id),
     ]);
   };
 
@@ -266,6 +307,8 @@ export default function App() {
     setIsNewUser(false);
     setRedemptions([]);
     setPointTransactions([]);
+    setBirthdayInput("");
+    setBirthdayClaim(null);
     setEmail("");
     setPassword("");
   };
@@ -342,8 +385,10 @@ export default function App() {
     }
 
     setUser({
+      id: data.user.id,
       email: data.user.email!,
       points: 10,
+      birthday: null,
       isAdmin: false,
     });
 
@@ -353,6 +398,127 @@ export default function App() {
       "🎉 Welcome to Essence Beauty & Wellness VIP!\n\n" +
         "Your account has been created and you've received your first 10 reward points.\n\n" +
         "A welcome email has been sent. If you don't see it, please check your Promotions, Spam, or Junk folder.",
+    );
+  };
+
+  // SAVE BIRTHDAY
+  const saveBirthday = async () => {
+    if (!user || user.birthday) return;
+
+    if (!birthdayInput) {
+      alert("Please select your birthday.");
+      return;
+    }
+
+    const birthdayDate = new Date(`${birthdayInput}T12:00:00`);
+
+    if (Number.isNaN(birthdayDate.getTime())) {
+      alert("Please enter a valid birthday.");
+      return;
+    }
+
+    if (birthdayDate > new Date()) {
+      alert("Birthday cannot be a future date.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Save ${birthdayDate.toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })} as your birthday?\n\nAfter saving, birthday changes must be handled by Essence Beauty & Wellness.`,
+    );
+
+    if (!confirmed) return;
+
+    setSavingBirthday(true);
+
+    const { data, error } = await supabase
+      .from("clients")
+      .update({ birthday: birthdayInput })
+      .eq("id", user.id)
+      .is("birthday", null)
+      .select("birthday")
+      .maybeSingle();
+
+    if (error || !data) {
+      console.error("Birthday save error:", error);
+      alert(
+        "Your birthday could not be saved. It may already be registered on your account.",
+      );
+      setSavingBirthday(false);
+      return;
+    }
+
+    setUser({
+      ...user,
+      birthday: data.birthday,
+    });
+
+    setBirthdayInput("");
+    setSavingBirthday(false);
+
+    alert(
+      "Your birthday has been saved 🎂\n\nYour complimentary birthday add-on will become available during your birthday month.",
+    );
+  };
+
+  // CLAIM BIRTHDAY REWARD
+  const claimBirthdayReward = async () => {
+    if (!user?.birthday || birthdayClaim) return;
+
+    const birthdayMonth = Number(user.birthday.split("-")[1]);
+    const currentMonth = new Date().getMonth() + 1;
+    const currentYear = new Date().getFullYear();
+
+    if (birthdayMonth !== currentMonth) {
+      alert("Your birthday reward is available only during your birthday month.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Claim your complimentary birthday luxury add-on?\n\nThis reward may be claimed once during your birthday month.",
+    );
+
+    if (!confirmed) return;
+
+    setClaimingBirthdayReward(true);
+
+    const { data, error } = await supabase
+      .from("birthday_reward_claims")
+      .insert([
+        {
+          client_id: user.id,
+          client_email: user.email.toLowerCase(),
+          birthday_year: currentYear,
+          reward: "Free Luxury Add-On",
+        },
+      ])
+      .select(
+        "id, client_id, client_email, birthday_year, reward, created_at",
+      )
+      .single();
+
+    if (error) {
+      console.error("Birthday reward claim error:", error);
+
+      if (error.code === "23505") {
+        await loadBirthdayClaim(user.id);
+        alert("Your birthday reward has already been claimed this year.");
+      } else {
+        alert("Your birthday reward could not be claimed.");
+      }
+
+      setClaimingBirthdayReward(false);
+      return;
+    }
+
+    setBirthdayClaim(data);
+    setClaimingBirthdayReward(false);
+
+    alert(
+      "Happy Birthday! 🎂✨\n\nYour complimentary luxury add-on has been claimed. Show this reward at your appointment during your birthday month.",
     );
   };
 
@@ -787,6 +953,122 @@ export default function App() {
               );
             })}
           </div>
+        </Card>
+
+        {/* BIRTHDAY REWARD */}
+        <Card className="rounded-[32px] border border-[#D9C59D]/60 bg-white/85 p-5 shadow-[0_16px_45px_rgba(55,42,23,0.08)] sm:p-7">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[#9B7B3E]">
+            Birthday Benefit
+          </p>
+
+          <h3 className="mt-1 text-2xl font-semibold text-[#171717]">
+            Your Birthday Reward 🎂
+          </h3>
+
+          {!user.birthday ? (
+            <div className="mt-5 rounded-2xl border border-[#E4D8C3] bg-[#FBF8F2] p-5">
+              <p className="font-semibold text-[#171717]">Add your birthday</p>
+
+              <p className="mt-2 text-sm leading-6 text-[#756D63]">
+                Receive one complimentary luxury add-on during your birthday
+                month. Your birthday can be entered once and later changed only
+                by Essence Beauty & Wellness.
+              </p>
+
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                <Input
+                  type="date"
+                  value={birthdayInput}
+                  max={new Date().toISOString().split("T")[0]}
+                  onChange={(event) => setBirthdayInput(event.target.value)}
+                  className="h-12 rounded-xl border-[#DCCBAA] bg-white focus-visible:ring-[#C6A86B]"
+                />
+
+                <Button
+                  disabled={savingBirthday || !birthdayInput}
+                  onClick={saveBirthday}
+                  className="h-12 rounded-xl bg-[#171717] px-6 text-white hover:bg-[#2B2B2B]"
+                >
+                  {savingBirthday ? "Saving..." : "Save Birthday"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            (() => {
+              const birthdayMonth = Number(user.birthday.split("-")[1]);
+              const birthdayDay = Number(user.birthday.split("-")[2]);
+              const currentMonth = new Date().getMonth() + 1;
+              const isBirthdayMonth = birthdayMonth === currentMonth;
+
+              const birthdayLabel = new Date(
+                2000,
+                birthdayMonth - 1,
+                birthdayDay,
+              ).toLocaleDateString("en-US", {
+                month: "long",
+                day: "numeric",
+              });
+
+              return (
+                <div
+                  className={`mt-5 rounded-2xl border p-5 ${
+                    isBirthdayMonth
+                      ? "border-[#C6A86B] bg-[#FFF9EC]"
+                      : "border-[#E4D8C3] bg-[#FBF8F2]"
+                  }`}
+                >
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="font-semibold text-[#171717]">
+                        Birthday: {birthdayLabel}
+                      </p>
+
+                      <p className="mt-2 text-sm text-[#756D63]">
+                        One Free Luxury Add-On
+                      </p>
+
+                      {birthdayClaim ? (
+                        <p className="mt-2 text-sm font-semibold text-[#7A5D28]">
+                          Claimed for {birthdayClaim.birthday_year} ✓
+                        </p>
+                      ) : isBirthdayMonth ? (
+                        <p className="mt-2 text-sm font-semibold text-[#7A5D28]">
+                          Your birthday reward is available now ✨
+                        </p>
+                      ) : (
+                        <p className="mt-2 text-sm text-[#756D63]">
+                          This reward becomes available during your birthday
+                          month.
+                        </p>
+                      )}
+                    </div>
+
+                    <Button
+                      disabled={
+                        !isBirthdayMonth ||
+                        Boolean(birthdayClaim) ||
+                        claimingBirthdayReward
+                      }
+                      onClick={claimBirthdayReward}
+                      className={`rounded-xl ${
+                        isBirthdayMonth && !birthdayClaim
+                          ? "bg-[#171717] text-white hover:bg-[#2B2B2B]"
+                          : "cursor-not-allowed bg-[#DED8CE] text-[#8B847B]"
+                      }`}
+                    >
+                      {birthdayClaim
+                        ? "Reward Claimed"
+                        : claimingBirthdayReward
+                          ? "Claiming..."
+                          : isBirthdayMonth
+                            ? "Claim Birthday Reward"
+                            : "Available During Birthday Month"}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })()
+          )}
         </Card>
 
         {/* REWARDS */}

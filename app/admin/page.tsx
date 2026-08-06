@@ -30,6 +30,14 @@ type PointTransaction = {
   created_at: string;
 };
 
+type ClientNote = {
+  id: string;
+  client_id: string;
+  client_email: string;
+  note: string;
+  created_at: string;
+};
+
 type TierName = "Bronze" | "Silver" | "Gold" | "Platinum";
 
 type Tier = {
@@ -86,10 +94,13 @@ export default function AdminPage() {
   const [pointTransactions, setPointTransactions] = useState<
     PointTransaction[]
   >([]);
+  const [clientNotes, setClientNotes] = useState<ClientNote[]>([]);
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [search, setSearch] = useState("");
   const [tierFilter, setTierFilter] = useState<"All" | TierName>("All");
   const [loading, setLoading] = useState(true);
   const [updatingClient, setUpdatingClient] = useState<string | null>(null);
+  const [savingNoteClient, setSavingNoteClient] = useState<string | null>(null);
 
   const loadDashboardData = async () => {
     setLoading(true);
@@ -98,6 +109,7 @@ export default function AdminPage() {
       { data: clientData, error: clientError },
       { data: redemptionData, error: redemptionError },
       { data: transactionData, error: transactionError },
+      { data: notesData, error: notesError },
     ] = await Promise.all([
       supabase
         .from("clients")
@@ -114,6 +126,11 @@ export default function AdminPage() {
         .select(
           "id, client_email, points, reason, transaction_type, created_at",
         )
+        .order("created_at", { ascending: false }),
+
+      supabase
+        .from("client_notes")
+        .select("id, client_id, client_email, note, created_at")
         .order("created_at", { ascending: false }),
     ]);
 
@@ -134,6 +151,12 @@ export default function AdminPage() {
       console.error("Load points transactions error:", transactionError);
     } else {
       setPointTransactions(transactionData || []);
+    }
+
+    if (notesError) {
+      console.error("Load client notes error:", notesError);
+    } else {
+      setClientNotes(notesData || []);
     }
 
     setLoading(false);
@@ -348,6 +371,79 @@ export default function AdminPage() {
     );
   };
 
+  const saveClientNote = async (client: Client) => {
+    const note = noteDrafts[client.id]?.trim();
+
+    if (!note) {
+      alert("Enter a note before saving.");
+      return;
+    }
+
+    setSavingNoteClient(client.id);
+
+    const { error } = await supabase.from("client_notes").insert([
+      {
+        client_id: client.id,
+        client_email: client.email.toLowerCase(),
+        note,
+      },
+    ]);
+
+    if (error) {
+      console.error("Save client note error:", error);
+      alert("The client note could not be saved.");
+      setSavingNoteClient(null);
+      return;
+    }
+
+    setNoteDrafts((current) => ({
+      ...current,
+      [client.id]: "",
+    }));
+
+    await loadDashboardData();
+    setSavingNoteClient(null);
+  };
+
+  const deleteClientNote = async (noteId: string) => {
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this client note?",
+    );
+
+    if (!confirmed) return;
+
+    const { error } = await supabase
+      .from("client_notes")
+      .delete()
+      .eq("id", noteId);
+
+    if (error) {
+      console.error("Delete client note error:", error);
+      alert(
+        "The note could not be deleted. Confirm that an admin DELETE policy exists in Supabase.",
+      );
+      return;
+    }
+
+    setClientNotes((current) =>
+      current.filter((note) => note.id !== noteId),
+    );
+  };
+
+  const notesByClient = useMemo(() => {
+    return clientNotes.reduce(
+      (groupedNotes, note) => {
+        if (!groupedNotes[note.client_id]) {
+          groupedNotes[note.client_id] = [];
+        }
+
+        groupedNotes[note.client_id].push(note);
+        return groupedNotes;
+      },
+      {} as Record<string, ClientNote[]>,
+    );
+  }, [clientNotes]);
+
   const totalPoints = useMemo(
     () => clients.reduce((sum, client) => sum + client.points, 0),
     [clients],
@@ -396,7 +492,7 @@ export default function AdminPage() {
               <img
                 src="/logo.png"
                 alt="Essence Beauty & Wellness"
-                className="w-24 h-auto shrink-0"
+                className="h-auto w-24 shrink-0"
               />
 
               <div>
@@ -409,7 +505,8 @@ export default function AdminPage() {
                 </h1>
 
                 <p className="mt-1 text-sm text-[#756D63]">
-                  Manage VIP members, tiers, points, rewards, and redemptions.
+                  Manage VIP members, tiers, points, rewards, notes, and
+                  redemptions.
                 </p>
               </div>
             </div>
@@ -566,8 +663,8 @@ export default function AdminPage() {
             </h2>
 
             <p className="mt-1 text-sm text-[#756D63]">
-              Search accounts, view membership tiers, award points, and redeem
-              rewards.
+              Search accounts, award points, redeem rewards, and save private
+              admin notes.
             </p>
           </div>
 
@@ -579,7 +676,7 @@ export default function AdminPage() {
             className="mb-5 h-12 rounded-xl border-[#DCCBAA] bg-[#FBF8F2] text-[#171717] placeholder:text-[#9A9288] focus-visible:ring-[#C6A86B]"
           />
 
-          <div className="max-h-[680px] space-y-4 overflow-y-auto pr-1">
+          <div className="max-h-[850px] space-y-4 overflow-y-auto pr-1">
             {loading ? (
               <div className="rounded-2xl border border-[#E4D8C3] bg-[#FBF8F2] p-8 text-center">
                 <p className="animate-pulse text-sm font-medium text-[#9B7B3E]">
@@ -595,14 +692,16 @@ export default function AdminPage() {
             ) : (
               filteredClients.map((client) => {
                 const isUpdating = updatingClient === client.id;
+                const isSavingNote = savingNoteClient === client.id;
                 const tier = getTier(client.points);
+                const notes = notesByClient[client.id] || [];
 
                 return (
                   <div
                     key={client.id}
                     className={`rounded-[24px] border p-5 shadow-sm ${tier.cardClass}`}
                   >
-                    <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="break-all text-base font-semibold text-[#171717]">
@@ -738,6 +837,90 @@ export default function AdminPage() {
                           </div>
                         </div>
                       </div>
+                    </div>
+
+                    {/* ADMIN NOTES */}
+                    <div className="mt-5 border-t border-black/10 pt-5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#9B7B3E]">
+                            Private Admin Notes
+                          </p>
+
+                          <p className="mt-1 text-xs text-[#756D63]">
+                            These notes are visible only inside the Admin CRM.
+                          </p>
+                        </div>
+
+                        <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-semibold text-[#7A5D28]">
+                          {notes.length} {notes.length === 1 ? "note" : "notes"}
+                        </span>
+                      </div>
+
+                      <textarea
+                        value={noteDrafts[client.id] || ""}
+                        onChange={(event) =>
+                          setNoteDrafts((current) => ({
+                            ...current,
+                            [client.id]: event.target.value,
+                          }))
+                        }
+                        placeholder="Add preferences, service details, reminders, or other private notes..."
+                        rows={3}
+                        className="mt-4 w-full resize-y rounded-xl border border-[#DCCBAA] bg-white/80 px-4 py-3 text-sm text-[#171717] outline-none placeholder:text-[#9A9288] focus:border-[#C6A86B] focus:ring-2 focus:ring-[#C6A86B]/20"
+                      />
+
+                      <div className="mt-3 flex justify-end">
+                        <Button
+                          size="sm"
+                          disabled={
+                            isSavingNote ||
+                            !noteDrafts[client.id]?.trim()
+                          }
+                          onClick={() => saveClientNote(client)}
+                          className="rounded-lg bg-[#171717] text-white hover:bg-[#2B2B2B]"
+                        >
+                          {isSavingNote ? "Saving Note..." : "Save Note"}
+                        </Button>
+                      </div>
+
+                      {notes.length > 0 && (
+                        <div className="mt-4 max-h-56 space-y-3 overflow-y-auto pr-1">
+                          {notes.map((note) => (
+                            <div
+                              key={note.id}
+                              className="rounded-xl border border-[#E4D8C3] bg-white/75 p-4"
+                            >
+                              <p className="whitespace-pre-wrap text-sm leading-6 text-[#514A42]">
+                                {note.note}
+                              </p>
+
+                              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <p className="text-xs text-[#8C8379]">
+                                  {new Date(note.created_at).toLocaleString(
+                                    "en-US",
+                                    {
+                                      month: "short",
+                                      day: "numeric",
+                                      year: "numeric",
+                                      hour: "numeric",
+                                      minute: "2-digit",
+                                    },
+                                  )}
+                                </p>
+
+                                <button
+                                  type="button"
+                                  onClick={() => deleteClientNote(note.id)}
+                                  className="w-fit text-xs font-semibold text-[#8B3A3A] hover:underline"
+                                >
+                                  Delete Note
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
