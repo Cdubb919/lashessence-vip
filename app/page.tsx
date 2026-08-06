@@ -244,38 +244,61 @@ export default function App() {
 
   // INIT SESSION
   useEffect(() => {
+    let isMounted = true;
+
     const init = async () => {
       setLoading(true);
 
-      const { data, error } = await supabase.auth.getSession();
+      try {
+        const { data, error } = await supabase.auth.getSession();
 
-      if (error) {
-        console.error("Session load error:", error);
-        setLoading(false);
-        return;
-      }
-
-      if (data.session?.user) {
-        await loadUserProfile(data.session.user.id);
-      }
-
-      setLoading(false);
-    };
-
-    init();
-
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        if (!session?.user) {
-          setUser(null);
+        if (error) {
+          console.error("Session load error:", error);
           return;
         }
 
-        await loadUserProfile(session.user.id);
+        if (data.session?.user) {
+          await loadUserProfile(data.session.user.id);
+        } else if (isMounted) {
+          setUser(null);
+        }
+      } catch (error) {
+        console.error("App initialization error:", error);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void init();
+
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (event === "INITIAL_SESSION") {
+          return;
+        }
+
+        if (!session?.user) {
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+
+        window.setTimeout(() => {
+          void loadUserProfile(session.user.id).finally(() => {
+            if (isMounted) {
+              setLoading(false);
+            }
+          });
+        }, 0);
       },
     );
 
-    return () => listener.subscription.unsubscribe();
+    return () => {
+      isMounted = false;
+      listener.subscription.unsubscribe();
+    };
   }, []);
 
   // LOGIN
