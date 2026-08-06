@@ -13,6 +13,62 @@ type User = {
   isAdmin?: boolean;
 };
 
+type Tier = {
+  name: string;
+  icon: string;
+  minimum: number;
+  nextMinimum: number | null;
+  badgeClass: string;
+  progressClass: string;
+};
+
+const getTier = (points: number): Tier => {
+  if (points >= 200) {
+    return {
+      name: "Platinum",
+      icon: "💎",
+      minimum: 200,
+      nextMinimum: null,
+      badgeClass:
+        "border-[#C7CDD4] bg-gradient-to-r from-[#EEF1F4] to-white text-[#4D5660]",
+      progressClass: "bg-gradient-to-r from-[#C7CDD4] via-white to-[#AEB6C0]",
+    };
+  }
+
+  if (points >= 100) {
+    return {
+      name: "Gold",
+      icon: "👑",
+      minimum: 100,
+      nextMinimum: 200,
+      badgeClass: "border-[#C6A86B] bg-[#FFF4D6] text-[#765515]",
+      progressClass:
+        "bg-gradient-to-r from-[#9B7B3E] via-[#E0C47E] to-[#C6A86B]",
+    };
+  }
+
+  if (points >= 50) {
+    return {
+      name: "Silver",
+      icon: "✨",
+      minimum: 50,
+      nextMinimum: 100,
+      badgeClass: "border-[#C8CDD2] bg-[#F1F3F5] text-[#59616A]",
+      progressClass:
+        "bg-gradient-to-r from-[#8E969E] via-[#DCE0E4] to-[#AEB5BC]",
+    };
+  }
+
+  return {
+    name: "Bronze",
+    icon: "🤎",
+    minimum: 0,
+    nextMinimum: 50,
+    badgeClass: "border-[#B9855A] bg-[#F5E4D3] text-[#784820]",
+    progressClass: "bg-gradient-to-r from-[#8A552F] via-[#C78F62] to-[#A66B3F]",
+  };
+};
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [email, setEmail] = useState("");
@@ -283,8 +339,8 @@ export default function App() {
             </h1>
 
             <p className="mt-2 mb-7 text-sm leading-6 text-[#6F675D]">
-              Earn points, unlock exclusive rewards, and enjoy more of the
-              services you love.
+              Earn points, advance through exclusive VIP tiers, and unlock
+              luxury rewards.
             </p>
 
             <div className="space-y-3">
@@ -340,6 +396,20 @@ export default function App() {
     );
   }
 
+  const tier = getTier(user.points);
+
+  const tierProgress =
+    tier.nextMinimum === null
+      ? 100
+      : Math.min(
+          ((user.points - tier.minimum) / (tier.nextMinimum - tier.minimum)) *
+            100,
+          100,
+        );
+
+  const pointsUntilNextTier =
+    tier.nextMinimum === null ? 0 : Math.max(tier.nextMinimum - user.points, 0);
+
   // DASHBOARD
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,#ffffff_0%,#F8F4EE_52%,#EEE4D4_100%)] px-4 py-6 sm:px-6 sm:py-10">
@@ -393,8 +463,16 @@ export default function App() {
             </div>
           </div>
 
+          {/* VIP BALANCE + TIER */}
           <div className="mt-7 rounded-[28px] bg-[#171717] px-6 py-8 text-center text-white shadow-inner">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[#D8C18F]">
+            <div
+              className={`mx-auto inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] ${tier.badgeClass}`}
+            >
+              <span>{tier.icon}</span>
+              <span>{tier.name} VIP Member</span>
+            </div>
+
+            <p className="mt-6 text-xs font-semibold uppercase tracking-[0.28em] text-[#D8C18F]">
               Your VIP Balance
             </p>
 
@@ -406,20 +484,45 @@ export default function App() {
               {user.points}
             </motion.p>
 
-            <p className="mt-2 text-sm text-[#D8D3CB]">
+            <p className="mt-1 text-sm text-[#D8D3CB]">VIP reward points</p>
+
+            <div className="mx-auto mt-6 max-w-md">
+              <div className="mb-2 flex items-center justify-between text-xs text-[#D8D3CB]">
+                <span>{tier.name}</span>
+
+                <span>
+                  {tier.nextMinimum
+                    ? `${pointsUntilNextTier} points to next tier`
+                    : "Highest tier achieved"}
+                </span>
+              </div>
+
+              <div className="h-2 overflow-hidden rounded-full bg-white/15">
+                <div
+                  className={`h-full rounded-full transition-all duration-700 ${tier.progressClass}`}
+                  style={{
+                    width: `${tierProgress}%`,
+                  }}
+                />
+              </div>
+
+              {tier.nextMinimum ? (
+                <p className="mt-3 text-xs text-[#BDB7AE]">
+                  Reach {tier.nextMinimum} points to become a{" "}
+                  {getTier(tier.nextMinimum).name} VIP Member.
+                </p>
+              ) : (
+                <p className="mt-3 text-xs text-[#D8C18F]">
+                  You have reached our highest VIP membership level ✨
+                </p>
+              )}
+            </div>
+
+            <p className="mt-6 text-sm text-[#D8D3CB]">
               {user.points < 50
                 ? `${50 - user.points} points until your first reward`
                 : "You have a reward ready to redeem ✨"}
             </p>
-
-            <div className="mx-auto mt-5 h-2 max-w-md overflow-hidden rounded-full bg-white/15">
-              <div
-                className="h-full rounded-full bg-[#C6A86B] transition-all duration-500"
-                style={{
-                  width: `${Math.min((user.points / 50) * 100, 100)}%`,
-                }}
-              />
-            </div>
 
             <a
               href="https://lashessence.square.site"
@@ -442,6 +545,87 @@ export default function App() {
             </p>
           </Card>
         )}
+
+        {/* VIP TIER GUIDE */}
+        <Card className="rounded-[32px] border border-[#D9C59D]/60 bg-white/85 p-5 shadow-[0_16px_45px_rgba(55,42,23,0.08)] sm:p-7">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[#9B7B3E]">
+            Membership Levels
+          </p>
+
+          <h3 className="mt-1 text-2xl font-semibold text-[#171717]">
+            Essence VIP Tiers
+          </h3>
+
+          <p className="mt-1 text-sm text-[#756D63]">
+            Keep earning points to advance through our VIP membership levels.
+          </p>
+
+          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              {
+                name: "Bronze",
+                icon: "🤎",
+                range: "0–49 Points",
+                minimum: 0,
+                className: "border-[#B9855A] bg-[#F5E4D3] text-[#784820]",
+              },
+              {
+                name: "Silver",
+                icon: "✨",
+                range: "50–99 Points",
+                minimum: 50,
+                className: "border-[#C8CDD2] bg-[#F1F3F5] text-[#59616A]",
+              },
+              {
+                name: "Gold",
+                icon: "👑",
+                range: "100–199 Points",
+                minimum: 100,
+                className: "border-[#C6A86B] bg-[#FFF4D6] text-[#765515]",
+              },
+              {
+                name: "Platinum",
+                icon: "💎",
+                range: "200+ Points",
+                minimum: 200,
+                className:
+                  "border-[#C7CDD4] bg-gradient-to-br from-[#EEF1F4] to-white text-[#4D5660]",
+              },
+            ].map((membershipTier) => {
+              const active = tier.name === membershipTier.name;
+              const achieved = user.points >= membershipTier.minimum;
+
+              return (
+                <div
+                  key={membershipTier.name}
+                  className={`relative rounded-2xl border p-5 text-center transition ${membershipTier.className} ${
+                    active
+                      ? "scale-[1.02] shadow-lg ring-2 ring-[#171717]"
+                      : achieved
+                        ? "opacity-100"
+                        : "opacity-55"
+                  }`}
+                >
+                  {active && (
+                    <span className="absolute right-3 top-3 rounded-full bg-[#171717] px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-white">
+                      Current
+                    </span>
+                  )}
+
+                  <p className="text-3xl">{membershipTier.icon}</p>
+
+                  <p className="mt-3 text-lg font-bold">
+                    {membershipTier.name}
+                  </p>
+
+                  <p className="mt-1 text-xs font-medium">
+                    {membershipTier.range}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
 
         {/* REWARDS */}
         <Card className="rounded-[32px] border border-[#D9C59D]/60 bg-white/85 p-5 shadow-[0_16px_45px_rgba(55,42,23,0.08)] sm:p-7">
