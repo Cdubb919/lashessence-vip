@@ -22,6 +22,14 @@ type Tier = {
   progressClass: string;
 };
 
+type Redemption = {
+  id: string;
+  client_email: string;
+  reward: string;
+  points_used: number;
+  created_at: string;
+};
+
 const getTier = (points: number): Tier => {
   if (points >= 200) {
     return {
@@ -75,6 +83,27 @@ export default function App() {
   const [password, setPassword] = useState("");
   const [isNewUser, setIsNewUser] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [redemptions, setRedemptions] = useState<Redemption[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const loadRedemptionHistory = async (clientEmail: string) => {
+    setHistoryLoading(true);
+
+    const { data, error } = await supabase
+      .from("reward_redemptions")
+      .select("id, client_email, reward, points_used, created_at")
+      .eq("client_email", clientEmail.toLowerCase())
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Redemption history load error:", error);
+      setRedemptions([]);
+    } else {
+      setRedemptions(data || []);
+    }
+
+    setHistoryLoading(false);
+  };
 
   // LOAD PROFILE
   const loadUserProfile = async (userId: string) => {
@@ -94,6 +123,7 @@ export default function App() {
       points: data.points ?? 0,
       isAdmin: data.is_admin === true,
     });
+    await loadRedemptionHistory(data.email);
   };
 
   // INIT SESSION
@@ -169,6 +199,7 @@ export default function App() {
 
     setUser(null);
     setIsNewUser(false);
+    setRedemptions([]);
     setEmail("");
     setPassword("");
   };
@@ -236,6 +267,12 @@ export default function App() {
     });
 
     setIsNewUser(true);
+
+    alert(
+      "🎉 Welcome to Essence Beauty & Wellness VIP!\n\n" +
+        "Your account has been created and you've received your first 10 reward points.\n\n" +
+        "A welcome email has been sent. If you don't see it, please check your Promotions, Spam, or Junk folder.",
+    );
   };
 
   // REDEEM REWARD
@@ -290,6 +327,8 @@ export default function App() {
       ...user,
       points: newPoints,
     });
+
+    await loadRedemptionHistory(user.email);
 
     alert(
       `${label} redeemed successfully ✨\n\nShow this reward at your next appointment.`,
@@ -536,13 +575,29 @@ export default function App() {
         </Card>
 
         {isNewUser && (
-          <Card className="rounded-2xl border border-[#D9C59D] bg-[#FFF9EC] p-4 text-center">
-            <p className="font-semibold text-[#7A5D28]">
-              Welcome to Essence Beauty & Wellness VIP ✨
+          <Card className="rounded-2xl border border-[#D9C59D] bg-[#FFF9EC] p-5 shadow-sm">
+            <p className="text-lg font-semibold text-[#7A5D28]">
+              ✨ Welcome to Essence Beauty & Wellness VIP
             </p>
-            <p className="mt-1 text-sm text-[#6F675D]">
-              Your first 10 reward points have been added.
+
+            <p className="mt-2 text-sm text-[#6F675D]">
+              Your account has been created successfully and your first
+              <span className="font-semibold"> 10 reward points </span>
+              have already been added to your account.
             </p>
+
+            <div className="mt-4 rounded-xl bg-white p-4 border border-[#E7D8B7]">
+              <p className="text-sm font-medium text-[#7A5D28]">
+                📧 Welcome email sent
+              </p>
+
+              <p className="mt-1 text-sm text-[#6F675D]">
+                If you don't see it within a few minutes, please check your
+                <span className="font-semibold"> Promotions</span>,
+                <span className="font-semibold"> Spam</span>, or
+                <span className="font-semibold"> Junk</span> folder.
+              </p>
+            </div>
           </Card>
         )}
 
@@ -687,6 +742,101 @@ export default function App() {
               })}
             </div>
           </CardContent>
+        </Card>
+
+        {/* REWARD HISTORY */}
+        <Card className="rounded-[32px] border border-[#D9C59D]/60 bg-white/85 p-5 shadow-[0_16px_45px_rgba(55,42,23,0.08)] sm:p-7">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[#9B7B3E]">
+                Member Activity
+              </p>
+
+              <h3 className="mt-1 text-2xl font-semibold text-[#171717]">
+                Your Reward History
+              </h3>
+
+              <p className="mt-1 text-sm text-[#756D63]">
+                Review the VIP rewards you have redeemed.
+              </p>
+            </div>
+
+            {redemptions.length > 0 && (
+              <span className="w-fit rounded-full bg-[#171717] px-3 py-1 text-xs font-semibold text-[#D8C18F]">
+                {redemptions.length}{" "}
+                {redemptions.length === 1 ? "redemption" : "redemptions"}
+              </span>
+            )}
+          </div>
+
+          <div className="mt-6">
+            {historyLoading ? (
+              <div className="rounded-2xl border border-[#E4D8C3] bg-[#FBF8F2] p-8 text-center">
+                <p className="animate-pulse text-sm font-medium text-[#9B7B3E]">
+                  Loading your reward history...
+                </p>
+              </div>
+            ) : redemptions.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-[#D9C59D] bg-[#FBF8F2] p-8 text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#171717] text-2xl">
+                  🎁
+                </div>
+
+                <p className="mt-4 font-semibold text-[#171717]">
+                  No rewards redeemed yet
+                </p>
+
+                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#756D63]">
+                  Once you redeem a VIP reward, its name, point value, and
+                  redemption date will appear here.
+                </p>
+              </div>
+            ) : (
+              <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1">
+                {redemptions.map((redemption) => (
+                  <div
+                    key={redemption.id}
+                    className="flex flex-col gap-4 rounded-2xl border border-[#E4D8C3] bg-[#FBF8F2] p-4 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#171717] text-xl">
+                        🎁
+                      </div>
+
+                      <div>
+                        <p className="font-semibold text-[#171717]">
+                          {redemption.reward}
+                        </p>
+
+                        <p className="mt-1 text-sm text-[#756D63]">
+                          Redeemed for {redemption.points_used} VIP points
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="sm:text-right">
+                      <span className="inline-flex rounded-full border border-[#C6A86B] bg-[#FFF9EC] px-3 py-1 text-xs font-semibold text-[#7A5D28]">
+                        Redeemed
+                      </span>
+
+                      <p className="mt-2 text-xs text-[#8C8379]">
+                        {new Date(redemption.created_at).toLocaleString(
+                          "en-US",
+                          {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          },
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </Card>
 
         {/* HOW TO EARN */}
