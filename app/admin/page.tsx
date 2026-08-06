@@ -21,10 +21,61 @@ type Redemption = {
   created_at: string;
 };
 
+type TierName = "Bronze" | "Silver" | "Gold" | "Platinum";
+
+type Tier = {
+  name: TierName;
+  icon: string;
+  badgeClass: string;
+  cardClass: string;
+};
+
+const getTier = (points: number): Tier => {
+  if (points >= 200) {
+    return {
+      name: "Platinum",
+      icon: "💎",
+      badgeClass:
+        "border-[#C7CDD4] bg-gradient-to-r from-[#EEF1F4] to-white text-[#4D5660]",
+      cardClass:
+        "border-[#C7CDD4] bg-gradient-to-br from-white via-[#F6F8FA] to-[#E8ECF0]",
+    };
+  }
+
+  if (points >= 100) {
+    return {
+      name: "Gold",
+      icon: "👑",
+      badgeClass: "border-[#C6A86B] bg-[#FFF4D6] text-[#765515]",
+      cardClass:
+        "border-[#C6A86B] bg-gradient-to-br from-[#FFFDF7] to-[#FFF4D6]",
+    };
+  }
+
+  if (points >= 50) {
+    return {
+      name: "Silver",
+      icon: "✨",
+      badgeClass: "border-[#C8CDD2] bg-[#F1F3F5] text-[#59616A]",
+      cardClass:
+        "border-[#C8CDD2] bg-gradient-to-br from-white to-[#F1F3F5]",
+    };
+  }
+
+  return {
+    name: "Bronze",
+    icon: "🤎",
+    badgeClass: "border-[#B9855A] bg-[#F5E4D3] text-[#784820]",
+    cardClass:
+      "border-[#D8B18E] bg-gradient-to-br from-[#FFFDFC] to-[#F5E4D3]",
+  };
+};
+
 export default function AdminPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [redemptions, setRedemptions] = useState<Redemption[]>([]);
   const [search, setSearch] = useState("");
+  const [tierFilter, setTierFilter] = useState<"All" | TierName>("All");
   const [loading, setLoading] = useState(true);
   const [updatingClient, setUpdatingClient] = useState<string | null>(null);
 
@@ -63,42 +114,42 @@ export default function AdminPage() {
   };
 
   useEffect(() => {
-  const checkAdmin = async () => {
-    setLoading(true);
+    const checkAdmin = async () => {
+      setLoading(true);
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-    if (userError || !user?.email) {
-      console.error("Admin auth error:", userError);
-      window.location.replace("/");
-      return;
-    }
+      if (userError || !user?.email) {
+        console.error("Admin auth error:", userError);
+        window.location.replace("/");
+        return;
+      }
 
-    const { data: adminProfile, error: adminError } = await supabase
-      .from("clients")
-      .select("is_admin")
-      .eq("email", user.email.toLowerCase())
-      .maybeSingle();
+      const { data: adminProfile, error: adminError } = await supabase
+        .from("clients")
+        .select("is_admin")
+        .eq("email", user.email.toLowerCase())
+        .maybeSingle();
 
-    if (adminError) {
-      console.error("Admin profile error:", adminError);
-      window.location.replace("/");
-      return;
-    }
+      if (adminError) {
+        console.error("Admin profile error:", adminError);
+        window.location.replace("/");
+        return;
+      }
 
-    if (adminProfile?.is_admin !== true) {
-      window.location.replace("/");
-      return;
-    }
+      if (adminProfile?.is_admin !== true) {
+        window.location.replace("/");
+        return;
+      }
 
-    await loadDashboardData();
-  };
+      await loadDashboardData();
+    };
 
-  checkAdmin();
-}, []);
+    checkAdmin();
+  }, []);
 
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
@@ -229,16 +280,6 @@ export default function AdminPage() {
     );
   };
 
-  const filteredClients = useMemo(() => {
-    const cleanSearch = search.trim().toLowerCase();
-
-    if (!cleanSearch) return clients;
-
-    return clients.filter((client) =>
-      client.email.toLowerCase().includes(cleanSearch),
-    );
-  }, [clients, search]);
-
   const totalPoints = useMemo(
     () => clients.reduce((sum, client) => sum + client.points, 0),
     [clients],
@@ -246,6 +287,36 @@ export default function AdminPage() {
 
   const averagePoints =
     clients.length > 0 ? Math.round(totalPoints / clients.length) : 0;
+
+  const tierCounts = useMemo(() => {
+    return clients.reduce(
+      (counts, client) => {
+        const tier = getTier(client.points).name;
+        counts[tier] += 1;
+        return counts;
+      },
+      {
+        Bronze: 0,
+        Silver: 0,
+        Gold: 0,
+        Platinum: 0,
+      } as Record<TierName, number>,
+    );
+  }, [clients]);
+
+  const filteredClients = useMemo(() => {
+    const cleanSearch = search.trim().toLowerCase();
+
+    return clients.filter((client) => {
+      const matchesSearch =
+        !cleanSearch || client.email.toLowerCase().includes(cleanSearch);
+
+      const matchesTier =
+        tierFilter === "All" || getTier(client.points).name === tierFilter;
+
+      return matchesSearch && matchesTier;
+    });
+  }, [clients, search, tierFilter]);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,#ffffff_0%,#F8F4EE_52%,#EEE4D4_100%)] px-4 py-6 sm:px-6 sm:py-10">
@@ -270,7 +341,7 @@ export default function AdminPage() {
                 </h1>
 
                 <p className="mt-1 text-sm text-[#756D63]">
-                  Manage VIP members, points, rewards, and redemptions.
+                  Manage VIP members, tiers, points, rewards, and redemptions.
                 </p>
               </div>
             </div>
@@ -302,7 +373,7 @@ export default function AdminPage() {
           </div>
         </Card>
 
-        {/* STATS */}
+        {/* MAIN STATS */}
         <div className="grid gap-4 md:grid-cols-3">
           <Card className="rounded-[28px] border border-[#D9C59D]/60 bg-white/90 p-6 text-center shadow-[0_14px_40px_rgba(55,42,23,0.08)]">
             <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[#9B7B3E]">
@@ -330,6 +401,91 @@ export default function AdminPage() {
           </Card>
         </div>
 
+        {/* TIER STATS */}
+        <Card className="rounded-[32px] border border-[#D9C59D]/60 bg-white/90 p-5 shadow-[0_16px_45px_rgba(55,42,23,0.08)] sm:p-7">
+          <div className="mb-5">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[#9B7B3E]">
+              Membership Overview
+            </p>
+
+            <h2 className="mt-1 text-2xl font-semibold text-[#171717]">
+              VIP Tier Distribution
+            </h2>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              {
+                name: "Bronze" as TierName,
+                icon: "🤎",
+                range: "0–49 points",
+                className:
+                  "border-[#B9855A] bg-[#F5E4D3] text-[#784820]",
+              },
+              {
+                name: "Silver" as TierName,
+                icon: "✨",
+                range: "50–99 points",
+                className:
+                  "border-[#C8CDD2] bg-[#F1F3F5] text-[#59616A]",
+              },
+              {
+                name: "Gold" as TierName,
+                icon: "👑",
+                range: "100–199 points",
+                className:
+                  "border-[#C6A86B] bg-[#FFF4D6] text-[#765515]",
+              },
+              {
+                name: "Platinum" as TierName,
+                icon: "💎",
+                range: "200+ points",
+                className:
+                  "border-[#C7CDD4] bg-gradient-to-br from-[#EEF1F4] to-white text-[#4D5660]",
+              },
+            ].map((tier) => (
+              <button
+                type="button"
+                key={tier.name}
+                onClick={() =>
+                  setTierFilter(tierFilter === tier.name ? "All" : tier.name)
+                }
+                className={`rounded-2xl border p-5 text-left transition hover:-translate-y-0.5 hover:shadow-md ${tier.className} ${
+                  tierFilter === tier.name
+                    ? "ring-2 ring-[#171717] ring-offset-2"
+                    : ""
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-2xl">{tier.icon}</span>
+                  <span className="text-3xl font-bold">
+                    {tierCounts[tier.name]}
+                  </span>
+                </div>
+
+                <p className="mt-4 font-bold">{tier.name} Members</p>
+                <p className="mt-1 text-xs">{tier.range}</p>
+              </button>
+            ))}
+          </div>
+
+          {tierFilter !== "All" && (
+            <div className="mt-4 flex items-center justify-between rounded-xl bg-[#FBF8F2] px-4 py-3">
+              <p className="text-sm text-[#756D63]">
+                Showing only {tierFilter} members.
+              </p>
+
+              <button
+                type="button"
+                onClick={() => setTierFilter("All")}
+                className="text-sm font-semibold text-[#8A6A32] hover:underline"
+              >
+                Clear Filter
+              </button>
+            </div>
+          )}
+        </Card>
+
         {/* CLIENT MANAGEMENT */}
         <Card className="rounded-[32px] border border-[#D9C59D]/60 bg-white/90 p-5 shadow-[0_16px_45px_rgba(55,42,23,0.08)] sm:p-7">
           <div className="mb-5">
@@ -342,7 +498,8 @@ export default function AdminPage() {
             </h2>
 
             <p className="mt-1 text-sm text-[#756D63]">
-              Search accounts, award points, and redeem client rewards.
+              Search accounts, view membership tiers, award points, and redeem
+              rewards.
             </p>
           </div>
 
@@ -354,7 +511,7 @@ export default function AdminPage() {
             className="mb-5 h-12 rounded-xl border-[#DCCBAA] bg-[#FBF8F2] text-[#171717] placeholder:text-[#9A9288] focus-visible:ring-[#C6A86B]"
           />
 
-          <div className="max-h-[620px] space-y-4 overflow-y-auto pr-1">
+          <div className="max-h-[680px] space-y-4 overflow-y-auto pr-1">
             {loading ? (
               <div className="rounded-2xl border border-[#E4D8C3] bg-[#FBF8F2] p-8 text-center">
                 <p className="animate-pulse text-sm font-medium text-[#9B7B3E]">
@@ -364,25 +521,35 @@ export default function AdminPage() {
             ) : filteredClients.length === 0 ? (
               <div className="rounded-2xl border border-[#E4D8C3] bg-[#FBF8F2] p-8 text-center">
                 <p className="text-sm text-[#756D63]">
-                  No client accounts match that search.
+                  No client accounts match that search or tier.
                 </p>
               </div>
             ) : (
               filteredClients.map((client) => {
                 const isUpdating = updatingClient === client.id;
+                const tier = getTier(client.points);
 
                 return (
                   <div
                     key={client.id}
-                    className="rounded-[24px] border border-[#E4D8C3] bg-[#FBF8F2] p-5"
+                    className={`rounded-[24px] border p-5 shadow-sm ${tier.cardClass}`}
                   >
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
                       <div className="min-w-0">
-                        <p className="break-all text-base font-semibold text-[#171717]">
-                          {client.email}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="break-all text-base font-semibold text-[#171717]">
+                            {client.email}
+                          </p>
 
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wide ${tier.badgeClass}`}
+                          >
+                            <span>{tier.icon}</span>
+                            <span>{tier.name}</span>
+                          </span>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
                           <span className="rounded-full bg-[#171717] px-3 py-1 text-xs font-semibold text-[#D8C18F]">
                             {client.points} points
                           </span>
